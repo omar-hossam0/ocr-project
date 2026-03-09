@@ -12,6 +12,7 @@ import {
   FolderOpen,
 } from "lucide-react";
 import ScrollReveal from "@/components/ScrollReveal";
+import WelcomeBanner from "./WelcomeBanner";
 
 const stats = [
   {
@@ -98,6 +99,9 @@ const shortcuts = [
 export default function DashboardPage() {
   return (
     <div className="space-y-8">
+      {/* Welcome Banner */}
+      <WelcomeBanner />
+
       {/* Header */}
       <ScrollReveal>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

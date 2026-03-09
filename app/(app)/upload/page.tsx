@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Upload,
@@ -30,6 +30,14 @@ export default function UploadPage() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = (selected: File) => {
+    setFile(selected);
+    setFileName(selected.name.replace(/\.[^.]+$/, ""));
+    setOcrResult("");
+  };
 
   const handleUpload = async () => {
     if (!file || !user) return;
@@ -141,13 +149,8 @@ export default function UploadPage() {
             onDrop={(e) => {
               e.preventDefault();
               setDragActive(false);
-              const dummyFile = new File(
-                ["dummy content"],
-                "Document_Scan.pdf",
-                { type: "application/pdf" },
-              );
-              setFile(dummyFile);
-              setFileName("Document_Scan");
+              const dropped = e.dataTransfer.files?.[0];
+              if (dropped) handleFileSelect(dropped);
             }}
           >
             {file ? (
@@ -182,20 +185,21 @@ export default function UploadPage() {
                 </p>
                 <div className="flex items-center justify-center gap-3 mt-6">
                   <button
-                    onClick={() => {
-                      // Simulate file selection
-                      const dummyFile = new File(
-                        ["dummy content"],
-                        "Contract_2026.pdf",
-                        { type: "application/pdf" },
-                      );
-                      setFile(dummyFile);
-                      setFileName("Contract_2026");
-                    }}
+                    onClick={() => fileInputRef.current?.click()}
                     className="bg-sky-400 hover:bg-sky-500 text-white px-6 py-2.5 rounded-full text-sm font-medium transition"
                   >
                     Browse Files
                   </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.txt"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleFileSelect(f);
+                    }}
+                  />
                   <button className="border border-white/20 text-gray-300 px-6 py-2.5 rounded-full text-sm font-medium hover:bg-white/10 transition flex items-center gap-2">
                     <Camera className="w-4 h-4" />
                     Scan

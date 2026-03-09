@@ -8,6 +8,8 @@ import {
   onAuthStateChanged,
   setPersistence,
   browserLocalPersistence,
+  updateProfile as firebaseUpdateProfile,
+  updatePassword as firebaseUpdatePassword,
 } from "firebase/auth";
 import { auth } from "./firebase";
 
@@ -17,6 +19,9 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  updateUserProfile: (displayName: string, photoURL?: string) => Promise<void>;
+  updateUserPassword: (newPassword: string) => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -91,8 +96,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await firebaseSignOut(auth);
   };
 
+  const updateUserProfile = async (displayName: string, photoURL?: string) => {
+    if (!auth.currentUser) throw new Error("No user logged in");
+    const updates: { displayName: string; photoURL?: string } = { displayName };
+    if (photoURL !== undefined) updates.photoURL = photoURL;
+    await firebaseUpdateProfile(auth.currentUser, updates);
+    // Reload so the context gets the fresh user object
+    await auth.currentUser.reload();
+    setUser({ ...auth.currentUser });
+  };
+
+  const updateUserPassword = async (newPassword: string) => {
+    if (!auth.currentUser) throw new Error("No user logged in");
+    await firebaseUpdatePassword(auth.currentUser, newPassword);
+  };
+
+  const refreshUser = async () => {
+    if (!auth.currentUser) return;
+    await auth.currentUser.reload();
+    setUser({ ...auth.currentUser });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        signIn,
+        signUp,
+        signOut,
+        updateUserProfile,
+        updateUserPassword,
+        refreshUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

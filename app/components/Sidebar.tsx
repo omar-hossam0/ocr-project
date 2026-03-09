@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Upload,
@@ -9,10 +9,32 @@ import {
   Activity,
   Settings,
   LogOut,
-  ChevronLeft,
-  Menu,
+  ChevronsUpDown,
 } from "lucide-react";
-import { useState } from "react";
+import { useAuth } from "@/app/lib/auth-context";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarRail,
+  SidebarProvider,
+  SidebarInset,
+  SidebarTrigger,
+} from "@/components/animate-ui/components/radix/sidebar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/animate-ui/components/radix/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -22,137 +44,129 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export default function Sidebar() {
+function AppSidebar() {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const router = useRouter();
+  const { user, signOut } = useAuth();
+
+  const initials = user?.displayName
+    ? user.displayName.slice(0, 2).toUpperCase()
+    : user?.email
+      ? user.email.slice(0, 2).toUpperCase()
+      : "U";
 
   return (
-    <>
-      {/* Mobile top bar */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-black/60 backdrop-blur-xl border-b border-white/10 px-4 h-14 flex items-center gap-3">
-        <button
-          onClick={() => setMobileOpen(true)}
-          className="p-2 rounded-lg hover:bg-white/10"
-        >
-          <Menu className="w-5 h-5 text-gray-300" />
-        </button>
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-sky-400 rounded-lg flex items-center justify-center">
-            <FileText className="w-4 h-4 text-white" />
-          </div>
-          <span className="font-bold text-white">DocuMind AI</span>
-        </div>
-      </div>
-
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div
-          className="lg:hidden fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-          onClick={() => setMobileOpen(false)}
-        >
-          <div
-            className="w-64 h-full bg-[#0a0f1e]/95 backdrop-blur-xl border-r border-white/10 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <SidebarContent
-              pathname={pathname}
-              collapsed={false}
-              setCollapsed={setCollapsed}
-              onClose={() => setMobileOpen(false)}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Desktop sidebar */}
-      <aside
-        className={`hidden lg:flex flex-col fixed top-0 left-0 h-screen bg-black/50 backdrop-blur-xl border-r border-white/10 transition-all duration-300 z-40 ${
-          collapsed ? "w-[72px]" : "w-60"
-        }`}
-      >
-        <SidebarContent
-          pathname={pathname}
-          collapsed={collapsed}
-          setCollapsed={setCollapsed}
-        />
-      </aside>
-    </>
-  );
-}
-
-function SidebarContent({
-  pathname,
-  collapsed,
-  setCollapsed,
-  onClose,
-}: {
-  pathname: string;
-  collapsed: boolean;
-  setCollapsed: (v: boolean) => void;
-  onClose?: () => void;
-}) {
-  return (
-    <div className="flex flex-col h-full">
-      {/* Logo */}
-      <div className="flex items-center justify-between px-4 h-16 border-b border-white/10">
-        <Link href="/" className="flex items-center gap-2" onClick={onClose}>
-          <div className="w-8 h-8 bg-sky-400 rounded-lg flex items-center justify-center shrink-0">
-            <FileText className="w-5 h-5 text-white" />
-          </div>
-          {!collapsed && (
-            <span className="font-bold text-white">DocuMind AI</span>
-          )}
-        </Link>
-        <button
-          onClick={() => {
-            setCollapsed(!collapsed);
-            onClose?.();
-          }}
-          className="p-1.5 rounded-lg hover:bg-white/10 hidden lg:block"
-        >
-          <ChevronLeft
-            className={`w-4 h-4 text-gray-400 transition-transform ${collapsed ? "rotate-180" : ""}`}
-          />
-        </button>
-      </div>
+    <Sidebar collapsible="icon">
+      {/* Header — Logo */}
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton size="lg" asChild>
+              <Link href="/">
+                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sky-500">
+                  <FileText className="size-4 text-white" />
+                </div>
+                <div className="grid flex-1 text-left text-sm leading-tight">
+                  <span className="truncate font-bold text-white">
+                    DocuMind AI
+                  </span>
+                  <span className="truncate text-xs text-sky-400">
+                    Smart Archiving
+                  </span>
+                </div>
+              </Link>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
 
       {/* Nav items */}
-      <nav className="flex-1 px-3 py-4 space-y-1">
-        {navItems.map((item) => {
-          const isActive =
-            pathname === item.href || pathname.startsWith(item.href + "/");
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onClose}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                isActive
-                  ? "bg-sky-500/20 text-sky-300 border border-sky-500/30"
-                  : "text-gray-400 hover:bg-white/10 hover:text-white"
-              }`}
-            >
-              <item.icon
-                className={`w-5 h-5 shrink-0 ${isActive ? "text-sky-400" : "text-gray-500"}`}
-              />
-              {!collapsed && <span>{item.label}</span>}
-            </Link>
-          );
-        })}
-      </nav>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarMenu>
+            {navItems.map((item) => {
+              const isActive =
+                pathname === item.href || pathname.startsWith(item.href + "/");
+              return (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton
+                    asChild
+                    tooltip={item.label}
+                    isActive={isActive}
+                  >
+                    <Link href={item.href}>
+                      <item.icon />
+                      <span>{item.label}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              );
+            })}
+          </SidebarMenu>
+        </SidebarGroup>
+      </SidebarContent>
 
-      {/* Bottom */}
-      <div className="px-3 py-4 border-t border-white/10">
-        <Link
-          href="/login"
-          onClick={onClose}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:bg-white/10 hover:text-white transition"
-        >
-          <LogOut className="w-5 h-5 text-gray-500 shrink-0" />
-          {!collapsed && <span>Logout</span>}
-        </Link>
-      </div>
-    </div>
+      {/* Footer — User */}
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton
+                  size="lg"
+                  className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                >
+                  <Avatar className="h-8 w-8 rounded-lg">
+                    <AvatarImage
+                      src={user?.photoURL || undefined}
+                      className="rounded-lg object-cover"
+                    />
+                    <AvatarFallback className="rounded-lg bg-sky-500/20 text-sky-300 text-xs">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="grid flex-1 text-left text-sm leading-tight">
+                    <span className="truncate font-semibold text-white">
+                      {user?.displayName || "Account"}
+                    </span>
+                    <span className="truncate text-xs text-gray-400">
+                      {user?.email || ""}
+                    </span>
+                  </div>
+                  <ChevronsUpDown className="ml-auto size-4" />
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                className="w-56 rounded-xl"
+                side="right"
+                align="end"
+                sideOffset={4}
+              >
+                <DropdownMenuItem onClick={() => router.push("/profile")}>
+                  <Settings className="mr-2 size-4" />
+                  Profile & Settings
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={async () => {
+                    await signOut();
+                    router.push("/login");
+                  }}
+                  className="text-red-400 focus:text-red-400"
+                >
+                  <LogOut className="mr-2 size-4" />
+                  Log out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
   );
 }
+
+export { AppSidebar, SidebarProvider, SidebarInset, SidebarTrigger };
+export default AppSidebar;
