@@ -13,6 +13,23 @@
   --color-accent: #f97316;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Sidebar tokens */
+  --color-sidebar: #0a0f1e;
+  --color-sidebar-foreground: #cbd5e1;
+  --color-sidebar-primary: #38bdf8;
+  --color-sidebar-primary-foreground: #ffffff;
+  --color-sidebar-accent: rgba(255, 255, 255, 0.08);
+  --color-sidebar-accent-foreground: #ffffff;
+  --color-sidebar-border: rgba(255, 255, 255, 0.1);
+  --color-sidebar-ring: #38bdf8;
+
+  /* shadcn base tokens */
+  --color-muted: rgba(255, 255, 255, 0.06);
+  --color-muted-foreground: #94a3b8;
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-ring: #38bdf8;
+  --radius: 0.75rem;
 }
 
 body {

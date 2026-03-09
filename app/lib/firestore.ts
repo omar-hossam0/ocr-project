@@ -7,6 +7,7 @@ import {
   doc,
   updateDoc,
   deleteDoc,
+  setDoc,
   query,
   where,
   orderBy,
@@ -17,6 +18,7 @@ import {
 import {
   ref,
   uploadBytes,
+  uploadBytesResumable,
   getDownloadURL,
   deleteObject,
 } from "firebase/storage";
@@ -476,4 +478,114 @@ export async function getAllTimeStats() {
     console.error("❌ Error getting all-time stats:", error);
     throw new Error(`Failed to fetch all-time stats: ${errorMessage}`);
   }
+}
+
+// ✅ USER PROFILE
+
+export interface UserProfile {
+  displayName: string;
+  department: string;
+  role: string;
+  photoURL?: string;
+  bio?: string;
+  phone?: string;
+  updatedAt?: Date;
+}
+
+export async function getUserProfile(
+  userId: string,
+): Promise<UserProfile | null> {
+  try {
+    const docRef = doc(db, "users", userId);
+    const snap = await getDoc(docRef);
+    return snap.exists() ? (snap.data() as UserProfile) : null;
+  } catch (error: unknown) {
+    console.error("Error fetching user profile:", error);
+    return null;
+  }
+}
+
+export async function saveUserProfile(
+  userId: string,
+  data: Partial<UserProfile>,
+): Promise<void> {
+  try {
+    // Filter out undefined/null values (Firestore doesn't allow them)
+    const cleanData = Object.fromEntries(
+      Object.entries(data).filter(([_, v]) => v != null),
+    );
+    const docRef = doc(db, "users", userId);
+    await setDoc(
+      docRef,
+      { ...cleanData, updatedAt: new Date() },
+      { merge: true },
+    );
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Failed to save profile";
+    throw new Error(`Failed to save profile: ${errorMessage}`);
+  }
+}
+
+export async function uploadProfilePhoto(
+  file: File,
+  userId: string,
+): Promise<string> {
+  try {
+    const storageRef = ref(storage, `profiles/${userId}/avatar`);
+    const snapshot = await uploadBytes(storageRef, file);
+    return getDownloadURL(snapshot.ref);
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Failed to upload photo";
+    throw new Error(`Failed to upload photo: ${errorMessage}`);
+  }
+}
+
+export function uploadProfilePhotoResumable(
+  file: File,
+  userId: string,
+  onProgress: (percent: number) => void,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      reject(new Error("File size exceeds 5MB limit"));
+      return;
+    }
+
+    const storageRef = ref(storage, `profiles/${userId}/avatar`);
+    const task = uploadBytesResumable(storageRef, file, {
+      contentType: file.type || "image/jpeg",
+    });
+
+    task.on(
+      "state_changed",
+      (snapshot) => {
+        const pct = Math.round(
+          (snapshot.bytesTransferred / snapshot.totalBytes) * 100,
+        );
+        onProgress(Math.min(pct, 99)); // Cap at 99% until complete
+      },
+      (error: any) => {
+        const msg = error?.message || "Upload failed";
+        reject(
+          new Error(
+            msg.includes("CORS") || msg.includes("401") || msg.includes("403")
+              ? `Storage access denied. Check Firebase rules (Auth token: ${userId})`
+              : `Upload failed: ${msg}`,
+          ),
+        );
+      },
+      async () => {
+        try {
+          const url = await getDownloadURL(task.snapshot.ref);
+          onProgress(100);
+          resolve(url);
+        } catch (e: any) {
+          reject(new Error(`Failed to get download URL: ${e?.message}`));
+        }
+      },
+    );
+  });
 }
