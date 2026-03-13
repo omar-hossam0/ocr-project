@@ -36,7 +36,11 @@ function WelcomeBannerContent() {
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
-    return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+    return hour < 12
+      ? "Good morning"
+      : hour < 17
+        ? "Good afternoon"
+        : "Good evening";
   }, []);
 
   return (

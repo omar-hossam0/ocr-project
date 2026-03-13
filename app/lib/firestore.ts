@@ -71,7 +71,10 @@ export async function addFile(fileData: FileData) {
 }
 
 // Cache for all files with TTL
-let filesCache: { data: (FileData & { id: string })[]; timestamp: number } | null = null;
+let filesCache: {
+  data: (FileData & { id: string })[];
+  timestamp: number;
+} | null = null;
 const FILES_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
 
 /**
@@ -80,12 +83,20 @@ const FILES_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
 export async function getAllFiles(forceFresh: boolean = false) {
   try {
     // Return cached result if still valid
-    if (!forceFresh && filesCache && Date.now() - filesCache.timestamp < FILES_CACHE_TTL) {
+    if (
+      !forceFresh &&
+      filesCache &&
+      Date.now() - filesCache.timestamp < FILES_CACHE_TTL
+    ) {
       console.log("✅ Returning cached files");
       return filesCache.data;
     }
-    
-    const q = query(collection(db, "files"), orderBy("uploadedAt", "desc"), limit(500));
+
+    const q = query(
+      collection(db, "files"),
+      orderBy("uploadedAt", "desc"),
+      limit(500),
+    );
     const querySnapshot = await getDocs(q);
 
     const files = querySnapshot.docs.map((document) => ({
@@ -95,7 +106,7 @@ export async function getAllFiles(forceFresh: boolean = false) {
 
     // Cache the results
     filesCache = { data: files, timestamp: Date.now() };
-    
+
     console.log("✅ Retrieved", files.length, "files");
     return files;
   } catch (error: unknown) {
@@ -170,7 +181,10 @@ export async function getFilteredFiles(constraints: QueryConstraint[]) {
 }
 
 // Simple in-memory cache for search results
-const searchCache = new Map<string, { data: (FileData & { id: string })[]; timestamp: number }>();
+const searchCache = new Map<
+  string,
+  { data: (FileData & { id: string })[]; timestamp: number }
+>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 /**
@@ -180,13 +194,13 @@ export async function searchFiles(keyword: string, limit: number = 100) {
   try {
     const cacheKey = `search:${keyword.toLowerCase()}`;
     const cached = searchCache.get(cacheKey);
-    
+
     // Return cached result if still valid
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       console.log("✅ Returning cached search results for:", keyword);
       return cached.data.slice(0, limit);
     }
-    
+
     const allFiles = await getAllFiles();
     const searchTerm = keyword.toLowerCase();
 
@@ -199,7 +213,7 @@ export async function searchFiles(keyword: string, limit: number = 100) {
 
     // Cache the results
     searchCache.set(cacheKey, { data: results, timestamp: Date.now() });
-    
+
     console.log("✅ Found", results.length, "matching files for:", keyword);
     return results.slice(0, limit);
   } catch (error: unknown) {

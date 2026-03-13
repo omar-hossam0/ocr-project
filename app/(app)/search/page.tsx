@@ -198,57 +198,60 @@ export default function SearchPage() {
       {/* Results */}
       <div className="space-y-3">
         {filtered.map((file) => (
-          <div key={file.id} className="glass-card p-5 hover:bg-white/10 transition">
-              <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
-                  <FileText className="w-6 h-6 text-sky-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <Link
-                        href={`/files/${file.id}`}
-                        className="font-medium text-white hover:text-sky-400 transition"
-                      >
-                        {file.name}
-                      </Link>
-                      <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-gray-500">
-                        <span className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {file.location}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          {file.date}
-                        </span>
-                        <span className="bg-white/10 text-gray-400 px-2 py-0.5 rounded-full">
-                          {file.type}
-                        </span>
-                        <span className="bg-sky-500/20 text-sky-400 px-2 py-0.5 rounded-full">
-                          {file.department}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-sm text-gray-400 mt-3 leading-relaxed">
-                    {file.excerpt}
-                  </p>
-                  <div className="flex items-center gap-2 mt-3">
+          <div
+            key={file.id}
+            className="glass-card p-5 hover:bg-white/10 transition"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
+                <FileText className="w-6 h-6 text-sky-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
                     <Link
                       href={`/files/${file.id}`}
-                      className="text-xs text-sky-400 hover:text-sky-300 font-medium flex items-center gap-1"
+                      className="font-medium text-white hover:text-sky-400 transition"
                     >
-                      <ExternalLink className="w-3 h-3" />
-                      View Details
+                      {file.name}
                     </Link>
-                    <button className="text-xs text-gray-500 hover:text-gray-300 font-medium flex items-center gap-1 ml-2">
-                      <Download className="w-3 h-3" />
-                      Download
-                    </button>
+                    <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <MapPin className="w-3 h-3" />
+                        {file.location}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        {file.date}
+                      </span>
+                      <span className="bg-white/10 text-gray-400 px-2 py-0.5 rounded-full">
+                        {file.type}
+                      </span>
+                      <span className="bg-sky-500/20 text-sky-400 px-2 py-0.5 rounded-full">
+                        {file.department}
+                      </span>
+                    </div>
                   </div>
+                </div>
+                <p className="text-sm text-gray-400 mt-3 leading-relaxed">
+                  {file.excerpt}
+                </p>
+                <div className="flex items-center gap-2 mt-3">
+                  <Link
+                    href={`/files/${file.id}`}
+                    className="text-xs text-sky-400 hover:text-sky-300 font-medium flex items-center gap-1"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    View Details
+                  </Link>
+                  <button className="text-xs text-gray-500 hover:text-gray-300 font-medium flex items-center gap-1 ml-2">
+                    <Download className="w-3 h-3" />
+                    Download
+                  </button>
                 </div>
               </div>
             </div>
+          </div>
         ))}
 
         {filtered.length === 0 && (
