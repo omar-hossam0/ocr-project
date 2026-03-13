@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
   Search as SearchIcon,
@@ -11,7 +11,6 @@ import {
   Calendar,
   X,
 } from "lucide-react";
-import ScrollReveal from "@/components/ScrollReveal";
 
 const allFiles = [
   {
@@ -82,27 +81,35 @@ export default function SearchPage() {
   const [typeFilter, setTypeFilter] = useState("All");
   const [deptFilter, setDeptFilter] = useState("All");
 
-  const filtered = allFiles.filter((f) => {
-    const matchQuery =
-      !query ||
-      f.name.toLowerCase().includes(query.toLowerCase()) ||
-      f.excerpt.toLowerCase().includes(query.toLowerCase());
-    const matchType = typeFilter === "All" || f.type === typeFilter;
-    const matchDept = deptFilter === "All" || f.department === deptFilter;
-    return matchQuery && matchType && matchDept;
-  });
+  const handleTypeFilterChange = useCallback((type: string) => {
+    setTypeFilter(type);
+  }, []);
+
+  const handleDeptFilterChange = useCallback((dept: string) => {
+    setDeptFilter(dept);
+  }, []);
+
+  const filtered = useMemo(() => {
+    return allFiles.filter((f) => {
+      const matchQuery =
+        !query ||
+        f.name.toLowerCase().includes(query.toLowerCase()) ||
+        f.excerpt.toLowerCase().includes(query.toLowerCase());
+      const matchType = typeFilter === "All" || f.type === typeFilter;
+      const matchDept = deptFilter === "All" || f.department === deptFilter;
+      return matchQuery && matchType && matchDept;
+    });
+  }, [query, typeFilter, deptFilter]);
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <ScrollReveal>
-        <div>
-          <h1 className="text-2xl font-bold text-white">Search Documents</h1>
-          <p className="text-gray-400 text-sm mt-1">
-            Find any document or keyword across your archive
-          </p>
-        </div>
-      </ScrollReveal>
+      <div>
+        <h1 className="text-2xl font-bold text-white">Search Documents</h1>
+        <p className="text-gray-400 text-sm mt-1">
+          Find any document or keyword across your archive
+        </p>
+      </div>
 
       {/* Search bar */}
       <div className="flex gap-3">
@@ -146,7 +153,7 @@ export default function SearchPage() {
             </label>
             <select
               value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
+              onChange={(e) => handleTypeFilterChange(e.target.value)}
               className="px-3 py-2 rounded-xl border border-white/15 bg-[#0a0f1e] text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500/50"
             >
               <option>All</option>
@@ -162,7 +169,7 @@ export default function SearchPage() {
             </label>
             <select
               value={deptFilter}
-              onChange={(e) => setDeptFilter(e.target.value)}
+              onChange={(e) => handleDeptFilterChange(e.target.value)}
               className="px-3 py-2 rounded-xl border border-white/15 bg-[#0a0f1e] text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500/50"
             >
               <option>All</option>
@@ -190,9 +197,8 @@ export default function SearchPage() {
 
       {/* Results */}
       <div className="space-y-3">
-        {filtered.map((file, i) => (
-          <ScrollReveal key={file.id} delay={i * 0.06}>
-            <div className="glass-card p-5 hover:bg-white/10 transition">
+        {filtered.map((file) => (
+          <div key={file.id} className="glass-card p-5 hover:bg-white/10 transition">
               <div className="flex flex-col sm:flex-row sm:items-start gap-4">
                 <div className="w-12 h-12 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
                   <FileText className="w-6 h-6 text-sky-400" />
@@ -243,7 +249,6 @@ export default function SearchPage() {
                 </div>
               </div>
             </div>
-          </ScrollReveal>
         ))}
 
         {filtered.length === 0 && (

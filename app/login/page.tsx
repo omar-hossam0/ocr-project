@@ -14,16 +14,17 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { useAuth } from "@/app/lib/auth-context";
+import { useToast } from "@/components/ToastProvider";
 
 export default function LoginPage() {
   const router = useRouter();
   const { signIn, signUp } = useAuth();
+  const { showToast } = useToast();
 
   const [showPassword, setShowPassword] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -116,25 +117,31 @@ export default function LoginPage() {
                 e.preventDefault();
                 setLoading(true);
                 setError("");
-                setSuccess(false);
                 try {
                   if (isSignUp) {
                     await signUp(email, password);
+                    showToast(
+                      "Account created! Welcome to DocuMind AI. Redirecting...",
+                      "success",
+                    );
                   } else {
                     await signIn(email, password);
+                    showToast(
+                      "Welcome back! Redirecting to dashboard...",
+                      "success",
+                    );
                   }
-                  // Show success message
-                  setSuccess(true);
-                  // Redirect after 2 seconds so user sees the success message
+                  // Redirect after 2 seconds so user sees the toast
                   setTimeout(() => {
                     router.push("/dashboard");
                   }, 2000);
                 } catch (err) {
-                  setError(
+                  const errMessage =
                     err instanceof Error
                       ? err.message
-                      : "Authentication failed.",
-                  );
+                      : "Authentication failed.";
+                  setError(errMessage);
+                  showToast(errMessage, "error");
                 } finally {
                   setLoading(false);
                 }
@@ -149,28 +156,6 @@ export default function LoginPage() {
                   transition={{ duration: 0.25, ease: "easeInOut" }}
                   className="space-y-3"
                 >
-                  {success && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="bg-green-500/10 border border-green-500/30 text-green-400 px-3 py-2 rounded-lg text-xs flex items-center gap-2"
-                    >
-                      <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                      <div>
-                        {isSignUp ? (
-                          <span>
-                            ✓ Account created! Welcome to DocuMind AI.
-                            Redirecting...
-                          </span>
-                        ) : (
-                          <span>
-                            ✓ Welcome back! Redirecting to dashboard...
-                          </span>
-                        )}
-                      </div>
-                    </motion.div>
-                  )}
-
                   {error && (
                     <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-3 py-2 rounded-lg text-xs">
                       {error}

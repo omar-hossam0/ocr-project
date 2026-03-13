@@ -1,10 +1,11 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
+import React from "react";
 import { useAuth } from "@/app/lib/auth-context";
 import { getUserProfile, UserProfile } from "@/app/lib/firestore";
 
-export default function WelcomeBanner() {
+function WelcomeBannerContent() {
   const { user } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,9 +34,10 @@ export default function WelcomeBanner() {
     user?.email?.slice(0, 2).toUpperCase() ||
     "U";
 
-  const hour = new Date().getHours();
-  const greeting =
-    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    return hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  }, []);
 
   return (
     <Link
@@ -69,3 +71,5 @@ export default function WelcomeBanner() {
     </Link>
   );
 }
+
+export default React.memo(WelcomeBannerContent);
