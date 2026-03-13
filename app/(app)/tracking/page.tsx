@@ -233,9 +233,7 @@ export default function TrackingPage() {
                       <div className="w-8 h-8 rounded-lg bg-sky-500/20 flex items-center justify-center shrink-0">
                         <FileText className="w-4 h-4 text-sky-400" />
                       </div>
-                      <span className="font-medium text-white">
-                        {log.file}
-                      </span>
+                      <span className="font-medium text-white">{log.file}</span>
                     </div>
                   </td>
                   <td className="px-6 py-4">

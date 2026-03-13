@@ -100,65 +100,69 @@ export default function ProfilePage() {
       img.src = blobUrl;
     });
 
-  const handlePhotoChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !user) return;
+  const handlePhotoChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file || !user) return;
 
-    // Show instant local preview
-    const previewUrl = URL.createObjectURL(file);
-    setPhotoPreview(previewUrl);
-    setUploadingPhoto(true);
-    setUploadProgress(0);
-    setError("");
-    setSuccess("");
-
-    try {
-      const compressed = await compressImage(file);
-      console.log(
-        `📸 Uploading compressed image ${Math.round(compressed.size / 1024)}KB...`,
-      );
-      const url = await uploadProfilePhotoResumable(
-        compressed,
-        user.uid,
-        (pct) => setUploadProgress(pct),
-      );
-      console.log(`✅ Photo uploaded successfully: ${url}`);
-      // Upload done — update state
-      URL.revokeObjectURL(previewUrl);
-      setPhotoPreview(null);
-      setPhotoURL(url);
-      setPhotoFile(null);
-
-      // Use current displayName or existing one
-      const currentName = displayName.trim() || user.displayName || "User";
-
-      // Persist to Auth first (updates Firebase Auth user object)
-      await updateUserProfile(currentName, url);
-
-      // Then save full profile to Firestore (includes all fields)
-      await saveUserProfile(user.uid, {
-        displayName: currentName,
-        photoURL: url,
-      });
-
-      setSuccess("Photo updated successfully!");
-      setTimeout(() => setSuccess(""), 3000);
-    } catch (err) {
-      console.error("❌ Photo upload error:", err);
-      const errMsg = err instanceof Error ? err.message : "Photo upload failed";
-      setError(errMsg);
-      // Keep the preview but don't save
-      setTimeout(() => {
-        setPhotoPreview(null);
-        setUploadingPhoto(false);
-      }, 1500);
-    } finally {
-      setUploadingPhoto(false);
+      // Show instant local preview
+      const previewUrl = URL.createObjectURL(file);
+      setPhotoPreview(previewUrl);
+      setUploadingPhoto(true);
       setUploadProgress(0);
-      // Reset input so same file can be re-selected
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }, [user, displayName, updateUserProfile]);
+      setError("");
+      setSuccess("");
+
+      try {
+        const compressed = await compressImage(file);
+        console.log(
+          `📸 Uploading compressed image ${Math.round(compressed.size / 1024)}KB...`,
+        );
+        const url = await uploadProfilePhotoResumable(
+          compressed,
+          user.uid,
+          (pct) => setUploadProgress(pct),
+        );
+        console.log(`✅ Photo uploaded successfully: ${url}`);
+        // Upload done — update state
+        URL.revokeObjectURL(previewUrl);
+        setPhotoPreview(null);
+        setPhotoURL(url);
+        setPhotoFile(null);
+
+        // Use current displayName or existing one
+        const currentName = displayName.trim() || user.displayName || "User";
+
+        // Persist to Auth first (updates Firebase Auth user object)
+        await updateUserProfile(currentName, url);
+
+        // Then save full profile to Firestore (includes all fields)
+        await saveUserProfile(user.uid, {
+          displayName: currentName,
+          photoURL: url,
+        });
+
+        setSuccess("Photo updated successfully!");
+        setTimeout(() => setSuccess(""), 3000);
+      } catch (err) {
+        console.error("❌ Photo upload error:", err);
+        const errMsg =
+          err instanceof Error ? err.message : "Photo upload failed";
+        setError(errMsg);
+        // Keep the preview but don't save
+        setTimeout(() => {
+          setPhotoPreview(null);
+          setUploadingPhoto(false);
+        }, 1500);
+      } finally {
+        setUploadingPhoto(false);
+        setUploadProgress(0);
+        // Reset input so same file can be re-selected
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [user, displayName, updateUserProfile],
+  );
 
   const handleSave = useCallback(async () => {
     if (!user) return;
@@ -192,7 +196,17 @@ export default function ProfilePage() {
     } finally {
       setSaving(false);
     }
-  }, [user, displayName, phone, department, role, bio, photoURL, updateUserProfile, refreshUser]);
+  }, [
+    user,
+    displayName,
+    phone,
+    department,
+    role,
+    bio,
+    photoURL,
+    updateUserProfile,
+    refreshUser,
+  ]);
 
   const handlePasswordChange = useCallback(async () => {
     if (!newPassword || !confirmPassword) {
@@ -227,7 +241,10 @@ export default function ProfilePage() {
     }
   }, [newPassword, confirmPassword, updateUserPassword]);
 
-  const currentPhoto = useMemo(() => photoPreview || photoURL, [photoPreview, photoURL]);
+  const currentPhoto = useMemo(
+    () => photoPreview || photoURL,
+    [photoPreview, photoURL],
+  );
   const initials = useMemo(
     () =>
       displayName?.slice(0, 2).toUpperCase() ||

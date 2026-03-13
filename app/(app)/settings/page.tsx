@@ -40,11 +40,11 @@ const users = [
 ];
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("locations");
-  
+
   const handleTabChange = useCallback((tabId: string) => {
     setActiveTab(tabId);
   }, []);
-  
+
   const tabs = [
     { id: "locations", label: "Storage Locations", icon: MapPin },
     { id: "departments", label: "Departments", icon: Building2 },

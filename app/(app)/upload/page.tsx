@@ -125,7 +125,18 @@ export default function UploadPage() {
     } finally {
       setUploading(false);
     }
-  }, [file, user, fileName, location, department, tags, notes, ocrResult, router, showToast]);
+  }, [
+    file,
+    user,
+    fileName,
+    location,
+    department,
+    tags,
+    notes,
+    ocrResult,
+    router,
+    showToast,
+  ]);
 
   return (
     <div className="space-y-8">
