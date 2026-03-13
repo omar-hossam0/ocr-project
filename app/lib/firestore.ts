@@ -70,12 +70,22 @@ export async function addFile(fileData: FileData) {
   }
 }
 
+// Cache for all files with TTL
+let filesCache: { data: (FileData & { id: string })[]; timestamp: number } | null = null;
+const FILES_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+
 /**
- * ✅ Get all files
+ * ✅ Get all files with caching
  */
-export async function getAllFiles() {
+export async function getAllFiles(forceFresh: boolean = false) {
   try {
-    const q = query(collection(db, "files"), orderBy("uploadedAt", "desc"));
+    // Return cached result if still valid
+    if (!forceFresh && filesCache && Date.now() - filesCache.timestamp < FILES_CACHE_TTL) {
+      console.log("✅ Returning cached files");
+      return filesCache.data;
+    }
+    
+    const q = query(collection(db, "files"), orderBy("uploadedAt", "desc"), limit(500));
     const querySnapshot = await getDocs(q);
 
     const files = querySnapshot.docs.map((document) => ({
@@ -83,6 +93,9 @@ export async function getAllFiles() {
       ...document.data(),
     })) as (FileData & { id: string })[];
 
+    // Cache the results
+    filesCache = { data: files, timestamp: Date.now() };
+    
     console.log("✅ Retrieved", files.length, "files");
     return files;
   } catch (error: unknown) {
@@ -103,6 +116,35 @@ export async function getAllFiles() {
     console.error("❌ Error fetching files:", error);
     throw new Error(`Failed to fetch files: ${errorMessage}`);
   }
+}
+
+/**
+ * ✅ Get recent files with pagination
+ */
+export async function getRecentFiles(pageSize: number = 10) {
+  try {
+    const q = query(
+      collection(db, "files"),
+      orderBy("uploadedAt", "desc"),
+      limit(pageSize),
+    );
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map((document) => ({
+      id: document.id,
+      ...document.data(),
+    })) as (FileData & { id: string })[];
+  } catch (error: unknown) {
+    console.error("❌ Error fetching recent files:", error);
+    return [];
+  }
+}
+
+/**
+ * ✅ Clear caches when needed
+ */
+export function clearFilesCache() {
+  filesCache = null;
+  searchCache.clear();
 }
 
 /**
@@ -127,11 +169,24 @@ export async function getFilteredFiles(constraints: QueryConstraint[]) {
   }
 }
 
+// Simple in-memory cache for search results
+const searchCache = new Map<string, { data: (FileData & { id: string })[]; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 /**
- * ✅ Search files by keyword (name, OCR text, tags)
+ * ✅ Search files by keyword (name, OCR text, tags) with caching
  */
-export async function searchFiles(keyword: string) {
+export async function searchFiles(keyword: string, limit: number = 100) {
   try {
+    const cacheKey = `search:${keyword.toLowerCase()}`;
+    const cached = searchCache.get(cacheKey);
+    
+    // Return cached result if still valid
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      console.log("✅ Returning cached search results for:", keyword);
+      return cached.data.slice(0, limit);
+    }
+    
     const allFiles = await getAllFiles();
     const searchTerm = keyword.toLowerCase();
 
@@ -142,8 +197,11 @@ export async function searchFiles(keyword: string) {
         file.tags.some((tag) => tag.toLowerCase().includes(searchTerm)),
     );
 
+    // Cache the results
+    searchCache.set(cacheKey, { data: results, timestamp: Date.now() });
+    
     console.log("✅ Found", results.length, "matching files for:", keyword);
-    return results;
+    return results.slice(0, limit);
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Search failed";

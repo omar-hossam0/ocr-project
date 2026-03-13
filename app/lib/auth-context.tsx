@@ -1,5 +1,6 @@
 "use client";
 import { createContext, useContext, useEffect, useState } from "react";
+import React from "react";
 import {
   User,
   signInWithEmailAndPassword,
@@ -117,19 +118,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser({ ...auth.currentUser });
   };
 
+  // Memoize context value to prevent unnecessary re-renders
+  const value = React.useMemo(
+    () => ({
+      user,
+      loading,
+      signIn,
+      signUp,
+      signOut,
+      updateUserProfile,
+      updateUserPassword,
+      refreshUser,
+    }),
+    [user, loading],
+  );
+
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        signIn,
-        signUp,
-        signOut,
-        updateUserProfile,
-        updateUserPassword,
-        refreshUser,
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

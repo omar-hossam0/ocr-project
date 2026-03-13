@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Camera,
   Save,
@@ -100,7 +100,7 @@ export default function ProfilePage() {
       img.src = blobUrl;
     });
 
-  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
@@ -158,9 +158,9 @@ export default function ProfilePage() {
       // Reset input so same file can be re-selected
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
-  };
+  }, [user, displayName, updateUserProfile]);
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (!user) return;
     setSaving(true);
     setError("");
@@ -192,9 +192,9 @@ export default function ProfilePage() {
     } finally {
       setSaving(false);
     }
-  };
+  }, [user, displayName, phone, department, role, bio, photoURL, updateUserProfile, refreshUser]);
 
-  const handlePasswordChange = async () => {
+  const handlePasswordChange = useCallback(async () => {
     if (!newPassword || !confirmPassword) {
       setPasswordError("Please fill in both password fields");
       return;
@@ -225,13 +225,16 @@ export default function ProfilePage() {
     } finally {
       setSavingPassword(false);
     }
-  };
+  }, [newPassword, confirmPassword, updateUserPassword]);
 
-  const currentPhoto = photoPreview || photoURL;
-  const initials =
-    displayName?.slice(0, 2).toUpperCase() ||
-    user?.email?.slice(0, 2).toUpperCase() ||
-    "U";
+  const currentPhoto = useMemo(() => photoPreview || photoURL, [photoPreview, photoURL]);
+  const initials = useMemo(
+    () =>
+      displayName?.slice(0, 2).toUpperCase() ||
+      user?.email?.slice(0, 2).toUpperCase() ||
+      "U",
+    [displayName, user?.email],
+  );
 
   return (
     <div className="space-y-8 max-w-3xl">

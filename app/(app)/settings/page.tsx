@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   Settings as SettingsIcon,
   MapPin,
@@ -40,6 +40,11 @@ const users = [
 ];
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("locations");
+  
+  const handleTabChange = useCallback((tabId: string) => {
+    setActiveTab(tabId);
+  }, []);
+  
   const tabs = [
     { id: "locations", label: "Storage Locations", icon: MapPin },
     { id: "departments", label: "Departments", icon: Building2 },
@@ -63,7 +68,7 @@ export default function SettingsPage() {
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition whitespace-nowrap ${activeTab === tab.id ? "bg-sky-500 text-white" : "text-gray-400 hover:text-white hover:bg-white/10"}`}
           >
             {" "}

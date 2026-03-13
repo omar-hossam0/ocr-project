@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Upload,
@@ -13,11 +13,13 @@ import {
   Loader2,
 } from "lucide-react";
 import { useAuth } from "@/app/lib/auth-context";
+import { useToast } from "@/components/ToastProvider";
 import { uploadFileToStorage, addFile } from "@/app/lib/firestore";
 
 export default function UploadPage() {
   const router = useRouter();
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState("");
@@ -29,17 +31,17 @@ export default function UploadPage() {
   const [processing, setProcessing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileSelect = (selected: File) => {
+  const handleFileSelect = useCallback((selected: File) => {
     setFile(selected);
     setFileName(selected.name.replace(/\.[^.]+$/, ""));
     setOcrResult("");
-  };
+    setError("");
+  }, []);
 
-  const handleUpload = async () => {
+  const handleUpload = useCallback(async () => {
     if (!file || !user) return;
 
     setProcessing(true);
@@ -50,24 +52,26 @@ export default function UploadPage() {
           "This is a sample extracted text from the uploaded document. The OCR engine has successfully recognized all text content including headers, paragraphs, and structured data. Document ID: DOC-2026-0384. Date: March 9, 2026. Department: Legal Affairs. The document contains important contract information that has been extracted and organized for easy searching and reference.",
         );
         setProcessing(false);
-      }, 2000);
+      }, 1500);
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Error processing file";
       setError(errorMessage);
+      showToast(errorMessage, "error");
       setProcessing(false);
     }
-  };
+  }, [file, user, showToast]);
 
-  const handlePublish = async () => {
+  const handlePublish = useCallback(async () => {
     if (!file || !user) {
-      setError("Missing file or user");
+      const msg = "Missing file or user";
+      setError(msg);
+      showToast(msg, "error");
       return;
     }
 
     setUploading(true);
     setError("");
-    setSuccess(false);
 
     try {
       // Upload file to Firebase Storage
@@ -99,12 +103,15 @@ export default function UploadPage() {
       });
 
       // Show success message
-      setSuccess(true);
+      showToast(
+        `File "${fileName || file.name}" uploaded successfully!`,
+        "success",
+      );
       console.log(
         `✓ File "${fileName || file.name}" uploaded successfully to ${location} (${department})`,
       );
 
-      // Redirect after 2 seconds so user sees the success message
+      // Redirect after 2 seconds so user sees the toast
       setTimeout(() => {
         setFile(null);
         setOcrResult("");
@@ -114,10 +121,11 @@ export default function UploadPage() {
       const errorMessage =
         err instanceof Error ? err.message : "Error uploading file";
       setError(errorMessage);
+      showToast(errorMessage, "error");
     } finally {
       setUploading(false);
     }
-  };
+  }, [file, user, fileName, location, department, tags, notes, ocrResult, router, showToast]);
 
   return (
     <div className="space-y-8">
@@ -212,19 +220,6 @@ export default function UploadPage() {
           {/* File details form */}
           <div className="glass-card p-6 space-y-5">
             <h2 className="font-semibold text-white">File Details</h2>
-
-            {success && (
-              <div className="bg-green-500/10 border border-green-500/30 text-green-400 px-4 py-3 rounded-xl text-sm flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                <div>
-                  <p className="font-medium">File uploaded successfully!</p>
-                  <p className="text-xs opacity-90 mt-0.5">
-                    {fileName || file?.name} saved to {location} • Department:{" "}
-                    {department}
-                  </p>
-                </div>
-              </div>
-            )}
 
             {error && (
               <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl text-sm">
