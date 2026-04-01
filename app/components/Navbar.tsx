@@ -152,12 +152,12 @@ export default function Navbar() {
   };
 
   const handleAuthAction = async () => {
+    // Keep the CTA consistent: send signed-in users to the app, guests to login
     if (user) {
-      await signOut();
-      router.push("/login");
-    } else {
-      router.push("/login");
+      router.push("/dashboard");
+      return;
     }
+    router.push("/login");
   };
 
   return (
@@ -199,7 +199,7 @@ export default function Navbar() {
             onClick={handleAuthAction}
             className="hidden md:inline-flex items-center h-[38px] px-5 rounded-lg text-xs font-semibold bg-sky-500 text-white hover:bg-sky-400 transition-colors"
           >
-            {user ? "Sign Out" : "Get Started →"}
+            Get Started →
           </button>
         </div>
 

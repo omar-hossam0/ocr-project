@@ -29,8 +29,10 @@ export interface FileData {
   name: string;
   originalName: string;
   location: string;
+  physicalLocation?: string;
   department: string;
   fileType: string;
+  documentType?: string;
   uploadedBy: string;
   uploadedAt: Date;
   modifiedAt: Date;
@@ -40,6 +42,7 @@ export interface FileData {
   ocrText: string;
   storageUrl?: string;
   fileSize: number;
+  status?: "available" | "checked_out" | "in_archive";
 }
 
 /**
@@ -47,11 +50,16 @@ export interface FileData {
  */
 export async function addFile(fileData: FileData) {
   try {
+    const normalizedLocation = fileData.physicalLocation || fileData.location;
+
     const docRef = await addDoc(collection(db, "files"), {
       ...fileData,
+      location: normalizedLocation,
+      physicalLocation: normalizedLocation,
+      documentType: fileData.documentType || fileData.fileType,
       uploadedAt: Timestamp.fromDate(fileData.uploadedAt),
       modifiedAt: Timestamp.fromDate(fileData.modifiedAt),
-      status: "active",
+      status: fileData.status || "available",
       views: 0,
       downloads: 0,
     });
@@ -190,7 +198,11 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 /**
  * ✅ Search files by keyword (name, OCR text, tags) with caching
  */
-export async function searchFiles(keyword: string, limit: number = 100) {
+export async function searchFiles(
+  keyword: string,
+  limit: number = 100,
+  forceFresh: boolean = false,
+) {
   try {
     const cacheKey = `search:${keyword.toLowerCase()}`;
     const cached = searchCache.get(cacheKey);
@@ -201,15 +213,24 @@ export async function searchFiles(keyword: string, limit: number = 100) {
       return cached.data.slice(0, limit);
     }
 
-    const allFiles = await getAllFiles();
+    const allFiles = await getAllFiles(forceFresh);
     const searchTerm = keyword.toLowerCase();
 
-    const results = allFiles.filter(
-      (file) =>
-        file.name.toLowerCase().includes(searchTerm) ||
-        file.ocrText.toLowerCase().includes(searchTerm) ||
-        file.tags.some((tag) => tag.toLowerCase().includes(searchTerm)),
-    );
+    const results = allFiles.filter((file) => {
+      const fileName = (file.name || "").toLowerCase();
+      const ocrText = (file.ocrText || "").toLowerCase();
+      const tags = Array.isArray(file.tags) ? file.tags : [];
+      const location = (file.physicalLocation || file.location || "").toLowerCase();
+      const documentType = (file.documentType || file.fileType || "").toLowerCase();
+
+      return (
+        fileName.includes(searchTerm) ||
+        ocrText.includes(searchTerm) ||
+        location.includes(searchTerm) ||
+        documentType.includes(searchTerm) ||
+        tags.some((tag) => tag.toLowerCase().includes(searchTerm))
+      );
+    });
 
     // Cache the results
     searchCache.set(cacheKey, { data: results, timestamp: Date.now() });
@@ -222,6 +243,87 @@ export async function searchFiles(keyword: string, limit: number = 100) {
     console.error("❌ Error searching files:", error);
     throw new Error(`Search failed: ${errorMessage}`);
   }
+}
+
+export interface SearchResultItem {
+  id: string;
+  fileName: string;
+  documentType: string;
+  physicalLocation: string;
+  ocrPreview: string;
+  matchField: "name" | "ocrText" | "location" | "documentType" | "tags";
+}
+
+function buildOcrPreview(ocrText: string, keyword: string, maxLength: number) {
+  if (!ocrText) {
+    return "";
+  }
+
+  const source = ocrText.replace(/\s+/g, " ").trim();
+  if (!source) {
+    return "";
+  }
+
+  const lowerText = source.toLowerCase();
+  const lowerKeyword = keyword.toLowerCase().trim();
+  const index = lowerKeyword ? lowerText.indexOf(lowerKeyword) : -1;
+
+  if (index === -1) {
+    return source.slice(0, maxLength);
+  }
+
+  const halfWindow = Math.floor(maxLength / 2);
+  const start = Math.max(0, index - halfWindow);
+  const end = Math.min(source.length, start + maxLength);
+  const snippet = source.slice(start, end);
+
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < source.length ? "..." : "";
+  return `${prefix}${snippet}${suffix}`;
+}
+
+/**
+ * Search files and return compact payload suitable for OCR search UI.
+ */
+export async function searchFilesWithPreview(
+  keyword: string,
+  options?: { limit?: number; previewLength?: number; forceFresh?: boolean },
+): Promise<SearchResultItem[]> {
+  const results = await searchFiles(
+    keyword,
+    options?.limit || 100,
+    options?.forceFresh || false,
+  );
+  const searchTerm = keyword.toLowerCase();
+  const previewLength = Math.max(40, options?.previewLength || 120);
+
+  return results.map((file) => {
+    const name = file.name || "";
+    const ocrText = file.ocrText || "";
+    const location = file.physicalLocation || file.location || "Unknown";
+    const documentType = file.documentType || file.fileType || "Unknown";
+    const tags = Array.isArray(file.tags) ? file.tags : [];
+
+    let matchField: SearchResultItem["matchField"] = "ocrText";
+    if (name.toLowerCase().includes(searchTerm)) {
+      matchField = "name";
+    } else if (location.toLowerCase().includes(searchTerm)) {
+      matchField = "location";
+    } else if (documentType.toLowerCase().includes(searchTerm)) {
+      matchField = "documentType";
+    } else if (tags.some((tag) => tag.toLowerCase().includes(searchTerm))) {
+      matchField = "tags";
+    }
+
+    return {
+      id: file.id || "",
+      fileName: name,
+      documentType,
+      physicalLocation: location,
+      ocrPreview: buildOcrPreview(ocrText, keyword, previewLength),
+      matchField,
+    };
+  });
 }
 
 /**
@@ -254,11 +356,15 @@ export async function getFilesByDepartment(department: string) {
 }
 
 // Get single file
-export async function getFile(id: string) {
+export async function getFile(
+  id: string,
+): Promise<(FileData & { id: string }) | null> {
   try {
     const docRef = doc(db, "files", id);
     const docSnap = await getDoc(docRef);
-    return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
+    return docSnap.exists()
+      ? ({ id: docSnap.id, ...docSnap.data() } as FileData & { id: string })
+      : null;
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Failed to fetch file";
@@ -381,6 +487,139 @@ export async function getTrackingLogs(
     console.error("Error fetching tracking logs:", error);
     throw new Error(`Failed to fetch tracking logs: ${errorMessage}`);
   }
+}
+
+export type FileTransactionAction = "taken" | "returned" | "moved";
+
+export interface FileTransaction {
+  id?: string;
+  fileId: string;
+  userId: string;
+  userName?: string;
+  action: FileTransactionAction;
+  fromLocation: string;
+  toLocation: string;
+  dateTime: Date;
+  note?: string;
+}
+
+interface CreateFileTransactionInput {
+  fileId: string;
+  userId: string;
+  userName?: string;
+  action: FileTransactionAction;
+  fromLocation?: string;
+  toLocation?: string;
+  note?: string;
+}
+
+/**
+ * Record a movement/checkout transaction and keep file status/location updated.
+ */
+export async function addFileTransaction(input: CreateFileTransactionInput) {
+  const now = new Date();
+  const file = await getFile(input.fileId);
+
+  if (!file) {
+    throw new Error("File not found");
+  }
+
+  const currentLocation =
+    (file.physicalLocation as string) || (file.location as string) || "Unknown";
+  const fromLocation = input.fromLocation || currentLocation;
+  const toLocation = input.toLocation || currentLocation;
+
+  const transactionData = {
+    fileId: input.fileId,
+    userId: input.userId,
+    userName: input.userName || "",
+    action: input.action,
+    fromLocation,
+    toLocation,
+    note: input.note || "",
+    dateTime: Timestamp.fromDate(now),
+    createdAt: Timestamp.fromDate(now),
+  };
+
+  const transactionRef = await addDoc(
+    collection(db, "fileTransactions"),
+    transactionData,
+  );
+
+  const fileRef = doc(db, "files", input.fileId);
+  const updates: Record<string, unknown> = {
+    modifiedAt: Timestamp.fromDate(now),
+    modifiedBy: input.userName || input.userId,
+  };
+
+  if (input.action === "taken") {
+    updates.status = "checked_out";
+  }
+
+  if (input.action === "returned") {
+    updates.status = "available";
+    updates.location = toLocation;
+    updates.physicalLocation = toLocation;
+  }
+
+  if (input.action === "moved") {
+    updates.status = "available";
+    updates.location = toLocation;
+    updates.physicalLocation = toLocation;
+  }
+
+  await updateDoc(fileRef, updates);
+
+  const mappedAction: TrackingLog["action"] =
+    input.action === "taken"
+      ? "checked_out"
+      : input.action === "returned"
+        ? "returned"
+        : "updated";
+
+  await addTrackingLog({
+    fileId: input.fileId,
+    fileName: (file.name as string) || "Unknown",
+    action: mappedAction,
+    user: input.userName || input.userId,
+    userDepartment: (file.department as string) || "Unknown",
+    timestamp: now,
+  });
+
+  return transactionRef.id;
+}
+
+export async function getFileTransactions(
+  options?: {
+    fileId?: string;
+    userId?: string;
+    action?: FileTransactionAction;
+    limitRows?: number;
+  },
+) {
+  const constraints: QueryConstraint[] = [orderBy("dateTime", "desc")];
+
+  if (options?.fileId) {
+    constraints.push(where("fileId", "==", options.fileId));
+  }
+
+  if (options?.userId) {
+    constraints.push(where("userId", "==", options.userId));
+  }
+
+  if (options?.action) {
+    constraints.push(where("action", "==", options.action));
+  }
+
+  constraints.push(limit(options?.limitRows || 100));
+
+  const q = query(collection(db, "fileTransactions"), ...constraints);
+  const snap = await getDocs(q);
+
+  return snap.docs.map((item) => ({
+    id: item.id,
+    ...item.data(),
+  })) as (FileTransaction & { id: string })[];
 }
 
 // ✅ FIRESTORE - STATISTICS & ANALYTICS
@@ -584,7 +823,7 @@ export async function saveUserProfile(
   try {
     // Filter out undefined/null values (Firestore doesn't allow them)
     const cleanData = Object.fromEntries(
-      Object.entries(data).filter(([_, v]) => v != null),
+      Object.entries(data).filter((entry) => entry[1] != null),
     );
     const docRef = doc(db, "users", userId);
     await setDoc(
@@ -639,8 +878,9 @@ export function uploadProfilePhotoResumable(
         );
         onProgress(Math.min(pct, 99)); // Cap at 99% until complete
       },
-      (error: any) => {
-        const msg = error?.message || "Upload failed";
+      (error: unknown) => {
+        const typedError = error as { message?: string };
+        const msg = typedError?.message || "Upload failed";
         reject(
           new Error(
             msg.includes("CORS") || msg.includes("401") || msg.includes("403")
@@ -654,8 +894,13 @@ export function uploadProfilePhotoResumable(
           const url = await getDownloadURL(task.snapshot.ref);
           onProgress(100);
           resolve(url);
-        } catch (e: any) {
-          reject(new Error(`Failed to get download URL: ${e?.message}`));
+        } catch (error: unknown) {
+          const typedError = error as { message?: string };
+          reject(
+            new Error(
+              `Failed to get download URL: ${typedError?.message || "Unknown error"}`,
+            ),
+          );
         }
       },
     );
