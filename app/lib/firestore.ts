@@ -220,8 +220,16 @@ export async function searchFiles(
       const fileName = (file.name || "").toLowerCase();
       const ocrText = (file.ocrText || "").toLowerCase();
       const tags = Array.isArray(file.tags) ? file.tags : [];
-      const location = (file.physicalLocation || file.location || "").toLowerCase();
-      const documentType = (file.documentType || file.fileType || "").toLowerCase();
+      const location = (
+        file.physicalLocation ||
+        file.location ||
+        ""
+      ).toLowerCase();
+      const documentType = (
+        file.documentType ||
+        file.fileType ||
+        ""
+      ).toLowerCase();
 
       return (
         fileName.includes(searchTerm) ||
@@ -589,14 +597,12 @@ export async function addFileTransaction(input: CreateFileTransactionInput) {
   return transactionRef.id;
 }
 
-export async function getFileTransactions(
-  options?: {
-    fileId?: string;
-    userId?: string;
-    action?: FileTransactionAction;
-    limitRows?: number;
-  },
-) {
+export async function getFileTransactions(options?: {
+  fileId?: string;
+  userId?: string;
+  action?: FileTransactionAction;
+  limitRows?: number;
+}) {
   const constraints: QueryConstraint[] = [orderBy("dateTime", "desc")];
 
   if (options?.fileId) {
