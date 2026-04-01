@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  searchFiles,
+  searchFilesWithPreview,
   getFilesByDepartment,
-  FileData,
+  SearchResultItem,
+  clearFilesCache,
 } from "@/app/lib/firestore";
 
 /**
@@ -14,6 +15,13 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const keyword = searchParams.get("q");
     const department = searchParams.get("department");
+    const limit = Number(searchParams.get("limit") || "50");
+    const previewLength = Number(searchParams.get("previewLength") || "120");
+    const forceFresh = searchParams.get("fresh") === "true";
+
+    if (forceFresh) {
+      clearFilesCache();
+    }
 
     if (!keyword && !department) {
       return NextResponse.json(
@@ -26,12 +34,24 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    let results: FileData[] = [];
+    let results: SearchResultItem[] = [];
 
     if (department) {
-      results = await getFilesByDepartment(department);
+      const files = await getFilesByDepartment(department);
+      results = files.slice(0, limit).map((file) => ({
+        id: file.id || "",
+        fileName: file.name || "",
+        documentType: file.documentType || file.fileType || "Unknown",
+        physicalLocation: file.physicalLocation || file.location || "Unknown",
+        ocrPreview: (file.ocrText || "").slice(0, previewLength),
+        matchField: "ocrText",
+      }));
     } else if (keyword) {
-      results = await searchFiles(keyword);
+      results = await searchFilesWithPreview(keyword, {
+        limit,
+        previewLength,
+        forceFresh,
+      });
     }
 
     return NextResponse.json({
@@ -39,6 +59,13 @@ export async function GET(request: NextRequest) {
       query: keyword || department,
       data: results,
       count: results.length || 0,
+      searchableColumns: [
+        "name",
+        "ocrText",
+        "documentType",
+        "physicalLocation",
+        "tags",
+      ],
       timestamp: new Date().toISOString(),
     });
   } catch (error: unknown) {
