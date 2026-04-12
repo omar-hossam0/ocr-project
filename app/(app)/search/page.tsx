@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import Link from "next/link";
 import {
   Search as SearchIcon,
@@ -12,74 +12,75 @@ import {
   X,
 } from "lucide-react";
 
-const allFiles = [
-  {
-    id: 1,
-    name: "Contract_2026_Q1.pdf",
-    location: "Cabinet A - Drawer 3",
-    department: "Legal",
-    date: "Mar 8, 2026",
-    type: "PDF",
-    excerpt:
-      "...this agreement between the two parties shall remain effective until the termination date specified in section 4.2...",
-  },
-  {
-    id: 2,
-    name: "Employee_ID_034.jpg",
-    location: "Office 2 - Shelf B",
-    department: "HR",
-    date: "Mar 7, 2026",
-    type: "Image",
-    excerpt:
-      "...employee identification card for Ahmad Mohamed, Department of Engineering, ID Number: EMP-034...",
-  },
-  {
-    id: 3,
-    name: "Policy_Update.docx",
-    location: "Storage Room 1",
-    department: "Administration",
-    date: "Mar 6, 2026",
-    type: "DOCX",
-    excerpt:
-      "...updated company policy regarding remote work arrangements effective from March 2026...",
-  },
-  {
-    id: 4,
-    name: "Invoice_March.pdf",
-    location: "Cabinet B - Drawer 1",
-    department: "Finance",
-    date: "Mar 5, 2026",
-    type: "PDF",
-    excerpt:
-      "...invoice total amount: 15,000 SAR for office supplies and equipment maintenance services...",
-  },
-  {
-    id: 5,
-    name: "Meeting_Notes_Q1.txt",
-    location: "Office 1 - Desk",
-    department: "Operations",
-    date: "Mar 4, 2026",
-    type: "TXT",
-    excerpt:
-      "...quarterly meeting discussed budget allocation, new hiring plan, and upcoming project deadlines...",
-  },
-  {
-    id: 6,
-    name: "Lease_Agreement.pdf",
-    location: "Cabinet A - Drawer 1",
-    department: "Legal",
-    date: "Mar 3, 2026",
-    type: "PDF",
-    excerpt:
-      "...lease agreement for office space located at Building 5, Floor 3, total area 200 sqm, monthly rent...",
-  },
-];
+type SearchFile = {
+  id: string;
+  name?: string;
+  physicalLocation?: string;
+  location?: string;
+  department?: string;
+  uploadedAt?: string | { seconds?: number };
+  documentType?: string;
+  fileType?: string;
+  ocrText?: string;
+};
+
+function formatDate(value: SearchFile["uploadedAt"]) {
+  try {
+    if (!value) return "-";
+    if (typeof value === "string") return new Date(value).toLocaleDateString();
+    if (typeof value === "object" && typeof value.seconds === "number") {
+      return new Date(value.seconds * 1000).toLocaleDateString();
+    }
+    return "-";
+  } catch {
+    return "-";
+  }
+}
 
 export default function SearchPage() {
+  const [allFiles, setAllFiles] = useState<SearchFile[]>([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [typeFilter, setTypeFilter] = useState("All");
   const [deptFilter, setDeptFilter] = useState("All");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const response = await fetch("/api/files", { cache: "no-store" });
+        const json = (await response.json()) as {
+          success?: boolean;
+          data?: SearchFile[];
+        };
+
+        if (
+          !cancelled &&
+          response.ok &&
+          json.success &&
+          Array.isArray(json.data)
+        ) {
+          setAllFiles(json.data);
+        }
+      } catch {
+        if (!cancelled) {
+          setAllFiles([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleTypeFilterChange = useCallback((type: string) => {
     setTypeFilter(type);
@@ -91,15 +92,20 @@ export default function SearchPage() {
 
   const filtered = useMemo(() => {
     return allFiles.filter((f) => {
+      const name = (f.name || "").toLowerCase();
+      const excerpt = (f.ocrText || "").toLowerCase();
+      const searchTerm = query.toLowerCase();
+      const type = (f.documentType || f.fileType || "").toUpperCase();
+      const dept = f.department || "General";
+
       const matchQuery =
-        !query ||
-        f.name.toLowerCase().includes(query.toLowerCase()) ||
-        f.excerpt.toLowerCase().includes(query.toLowerCase());
-      const matchType = typeFilter === "All" || f.type === typeFilter;
-      const matchDept = deptFilter === "All" || f.department === deptFilter;
+        !query || name.includes(searchTerm) || excerpt.includes(searchTerm);
+      const matchType =
+        typeFilter === "All" || type.includes(typeFilter.toUpperCase());
+      const matchDept = deptFilter === "All" || dept === deptFilter;
       return matchQuery && matchType && matchDept;
     });
-  }, [query, typeFilter, deptFilter]);
+  }, [allFiles, query, typeFilter, deptFilter]);
 
   return (
     <div className="space-y-6">
@@ -193,7 +199,9 @@ export default function SearchPage() {
       )}
 
       {/* Results count */}
-      <p className="text-sm text-gray-400">{filtered.length} results found</p>
+      <p className="text-sm text-gray-400">
+        {loading ? "Loading..." : `${filtered.length} results found`}
+      </p>
 
       {/* Results */}
       <div className="space-y-3">
@@ -213,28 +221,28 @@ export default function SearchPage() {
                       href={`/files/${file.id}`}
                       className="font-medium text-white hover:text-sky-400 transition"
                     >
-                      {file.name}
+                      {file.name || "Untitled"}
                     </Link>
                     <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-gray-500">
                       <span className="flex items-center gap-1">
                         <MapPin className="w-3 h-3" />
-                        {file.location}
+                        {file.physicalLocation || file.location || "Unknown"}
                       </span>
                       <span className="flex items-center gap-1">
                         <Calendar className="w-3 h-3" />
-                        {file.date}
+                        {formatDate(file.uploadedAt)}
                       </span>
                       <span className="bg-white/10 text-gray-400 px-2 py-0.5 rounded-full">
-                        {file.type}
+                        {file.documentType || file.fileType || "Document"}
                       </span>
                       <span className="bg-sky-500/20 text-sky-400 px-2 py-0.5 rounded-full">
-                        {file.department}
+                        {file.department || "General"}
                       </span>
                     </div>
                   </div>
                 </div>
                 <p className="text-sm text-gray-400 mt-3 leading-relaxed">
-                  {file.excerpt}
+                  {(file.ocrText || "").slice(0, 220) || "No OCR preview yet."}
                 </p>
                 <div className="flex items-center gap-2 mt-3">
                   <Link

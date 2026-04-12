@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FileText,
   Upload,
@@ -13,68 +13,33 @@ import {
   TrendingUp,
   FolderOpen,
 } from "lucide-react";
-import ScrollReveal from "@/components/ScrollReveal";
 import WelcomeBanner from "./WelcomeBanner";
 
-const STATS_DATA = [
-  {
-    label: "Total Files",
-    value: "1,284",
-    icon: FolderOpen,
-    color: "bg-sky-500/20 text-sky-400",
-  },
-  {
-    label: "New This Week",
-    value: "36",
-    icon: TrendingUp,
-    color: "bg-green-500/20 text-green-400",
-  },
-  {
-    label: "Expiring Soon",
-    value: "8",
-    icon: AlertTriangle,
-    color: "bg-amber-500/20 text-amber-400",
-  },
-  {
-    label: "Pending OCR",
-    value: "3",
-    icon: Clock,
-    color: "bg-purple-500/20 text-purple-400",
-  },
-];
+type FileRecord = {
+  id: string;
+  name?: string;
+  physicalLocation?: string;
+  location?: string;
+  uploadedAt?: string | { seconds?: number };
+  documentType?: string;
+  fileType?: string;
+  status?: string;
+};
 
-const RECENT_FILES = [
-  {
-    name: "Contract_2026_Q1.pdf",
-    location: "Cabinet A - Drawer 3",
-    date: "Mar 8, 2026",
-    type: "PDF",
-  },
-  {
-    name: "Employee_ID_034.jpg",
-    location: "Office 2 - Shelf B",
-    date: "Mar 7, 2026",
-    type: "Image",
-  },
-  {
-    name: "Policy_Update.docx",
-    location: "Storage Room 1",
-    date: "Mar 6, 2026",
-    type: "DOCX",
-  },
-  {
-    name: "Invoice_March.pdf",
-    location: "Cabinet B - Drawer 1",
-    date: "Mar 5, 2026",
-    type: "PDF",
-  },
-  {
-    name: "Meeting_Notes.txt",
-    location: "Office 1 - Desk",
-    date: "Mar 4, 2026",
-    type: "TXT",
-  },
-];
+function formatDate(value: FileRecord["uploadedAt"]): string {
+  try {
+    if (!value) return "-";
+    if (typeof value === "string") {
+      return new Date(value).toLocaleDateString();
+    }
+    if (typeof value === "object" && typeof value.seconds === "number") {
+      return new Date(value.seconds * 1000).toLocaleDateString();
+    }
+    return "-";
+  } catch {
+    return "-";
+  }
+}
 
 const SHORTCUTS = [
   { label: "Upload File", href: "/upload", icon: Upload, color: "bg-sky-500" },
@@ -99,9 +64,94 @@ const SHORTCUTS = [
 ];
 
 export default function DashboardPage() {
+  const [files, setFiles] = useState<FileRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadFiles = async () => {
+      try {
+        const response = await fetch("/api/files", { cache: "no-store" });
+        const json = (await response.json()) as {
+          success?: boolean;
+          data?: FileRecord[];
+        };
+
+        if (
+          !cancelled &&
+          response.ok &&
+          json.success &&
+          Array.isArray(json.data)
+        ) {
+          setFiles(json.data);
+        }
+      } catch {
+        if (!cancelled) {
+          setFiles([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void loadFiles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Memoize stats to avoid recalculation
-  const stats = useMemo(() => STATS_DATA, []);
-  const recentFiles = useMemo(() => RECENT_FILES, []);
+  const stats = useMemo(() => {
+    const pending = files.filter((file) => file.status === "processing").length;
+    const now = Date.now();
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+    const thisWeek = files.filter((file) => {
+      const uploaded = file.uploadedAt;
+      if (typeof uploaded === "string") {
+        return now - new Date(uploaded).getTime() <= weekMs;
+      }
+      if (
+        typeof uploaded === "object" &&
+        typeof uploaded?.seconds === "number"
+      ) {
+        return now - uploaded.seconds * 1000 <= weekMs;
+      }
+      return false;
+    }).length;
+
+    return [
+      {
+        label: "Total Files",
+        value: String(files.length),
+        icon: FolderOpen,
+        color: "bg-sky-500/20 text-sky-400",
+      },
+      {
+        label: "New This Week",
+        value: String(thisWeek),
+        icon: TrendingUp,
+        color: "bg-green-500/20 text-green-400",
+      },
+      {
+        label: "Failed OCR",
+        value: String(files.filter((file) => file.status === "failed").length),
+        icon: AlertTriangle,
+        color: "bg-amber-500/20 text-amber-400",
+      },
+      {
+        label: "Pending OCR",
+        value: String(pending),
+        icon: Clock,
+        color: "bg-purple-500/20 text-purple-400",
+      },
+    ];
+  }, [files]);
+
+  const recentFiles = useMemo(() => files.slice(0, 5), [files]);
   const shortcuts = useMemo(() => SHORTCUTS, []);
 
   return (
@@ -185,10 +235,22 @@ export default function DashboardPage() {
           </Link>
         </div>
         <div className="divide-y divide-white/5">
-          {recentFiles.map((file, i) => (
+          {loading && (
+            <div className="px-6 py-6 text-sm text-gray-400">
+              Loading recent files...
+            </div>
+          )}
+
+          {!loading && recentFiles.length === 0 && (
+            <div className="px-6 py-6 text-sm text-gray-400">
+              No files saved yet.
+            </div>
+          )}
+
+          {recentFiles.map((file) => (
             <Link
-              key={i}
-              href={`/files/${i + 1}`}
+              key={file.id}
+              href={`/files/${file.id}`}
               className="flex items-center gap-4 px-6 py-4 hover:bg-white/5 transition"
             >
               <div className="w-10 h-10 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
@@ -196,16 +258,18 @@ export default function DashboardPage() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-white truncate">
-                  {file.name}
+                  {file.name || "Untitled"}
                 </p>
                 <p className="text-xs text-gray-500 truncate">
-                  {file.location}
+                  {file.physicalLocation || file.location || "Unknown location"}
                 </p>
               </div>
               <div className="hidden sm:block text-right shrink-0">
-                <p className="text-xs text-gray-500">{file.date}</p>
+                <p className="text-xs text-gray-500">
+                  {formatDate(file.uploadedAt)}
+                </p>
                 <span className="text-xs bg-white/10 text-gray-400 px-2 py-0.5 rounded-full">
-                  {file.type}
+                  {file.documentType || file.fileType || "Document"}
                 </span>
               </div>
             </Link>

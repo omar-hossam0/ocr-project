@@ -151,7 +151,9 @@ def _show_menu():
     root.mainloop()
     return choice["value"]
 
-MODE = _show_menu()
+MODE = os.environ.get("OCR_INPUT_MODE", "").strip().lower()
+if MODE not in {"camera", "image", "pdf"}:
+    MODE = _show_menu()
 if MODE is None:
     print("Cancelled.")
     exit(0)

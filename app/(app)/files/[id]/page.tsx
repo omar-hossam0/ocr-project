@@ -1,4 +1,7 @@
+"use client";
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import {
   FileText,
   MapPin,
@@ -13,54 +16,110 @@ import {
   Bell,
 } from "lucide-react";
 
+type FileRecord = {
+  id: string;
+  name?: string;
+  physicalLocation?: string;
+  location?: string;
+  department?: string;
+  uploadedAt?: string | { seconds?: number };
+  modifiedAt?: string | { seconds?: number };
+  uploadedBy?: string;
+  modifiedBy?: string;
+  documentType?: string;
+  fileType?: string;
+  tags?: string[];
+  notes?: string;
+  ocrText?: string;
+};
+
+function formatDate(value: FileRecord["uploadedAt"]): string {
+  try {
+    if (!value) return "-";
+    if (typeof value === "string") return new Date(value).toLocaleString();
+    if (typeof value === "object" && typeof value.seconds === "number") {
+      return new Date(value.seconds * 1000).toLocaleString();
+    }
+    return "-";
+  } catch {
+    return "-";
+  }
+}
+
 export default function FileDetailsPage() {
-  const file = {
-    id: 1,
-    name: "Contract_2026_Q1.pdf",
-    location: "Cabinet A - Drawer 3",
-    department: "Legal",
-    dateAdded: "March 8, 2026",
-    dateModified: "March 9, 2026",
-    addedBy: "Omar Ahmed",
-    modifiedBy: "Sara Hassan",
-    type: "PDF",
-    tags: ["contract", "legal", "Q1", "2026"],
-    notes: "Important quarterly contract - needs review before end of March.",
-    ocrText: `CONFIDENTIAL
+  const params = useParams<{ id: string }>();
+  const [file, setFile] = useState<FileRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-CONTRACT AGREEMENT - Q1 2026
+  useEffect(() => {
+    const id = params?.id;
+    if (!id) {
+      setError("Invalid file id");
+      setLoading(false);
+      return;
+    }
 
-This agreement ("Agreement") is entered into as of January 1, 2026, by and between:
+    let cancelled = false;
 
-Party A: DocuMind Technologies LLC
-Address: Building 5, Floor 3, Business District
-Registration No: CR-12345
+    const load = async () => {
+      try {
+        const response = await fetch(`/api/files/${id}`, { cache: "no-store" });
+        const json = (await response.json()) as {
+          success?: boolean;
+          data?: FileRecord;
+          error?: string;
+        };
 
-AND
+        if (!response.ok || !json.success || !json.data) {
+          throw new Error(json.error || "File not found");
+        }
 
-Party B: Global Services Corporation  
-Address: Tower 8, Suite 200, Financial Center
-Registration No: CR-67890
+        if (!cancelled) {
+          setFile(json.data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load file");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
 
-TERMS AND CONDITIONS:
+    void load();
 
-1. SCOPE OF SERVICES
-Party B agrees to provide document management and archiving services as outlined in Appendix A. All services shall comply with local regulations and international standards.
+    return () => {
+      cancelled = true;
+    };
+  }, [params?.id]);
 
-2. DURATION
-This agreement shall remain effective from January 1, 2026, until December 31, 2026, unless terminated earlier in accordance with Section 4.
+  const tags = useMemo(
+    () => (Array.isArray(file?.tags) ? file?.tags : []),
+    [file?.tags],
+  );
 
-3. COMPENSATION
-Total contract value: 150,000 SAR, payable in quarterly installments of 37,500 SAR each. Payment shall be made within 30 days of invoice receipt.
+  if (loading) {
+    return <div className="text-gray-300">Loading file details...</div>;
+  }
 
-4. TERMINATION
-Either party may terminate this agreement with 60 days written notice. In case of material breach, the non-breaching party may terminate immediately upon written notice.
-
-5. CONFIDENTIALITY
-Both parties agree to maintain the confidentiality of all proprietary information shared during the term of this agreement.
-
-Signed and agreed by authorized representatives of both parties.`,
-  };
+  if (error || !file) {
+    return (
+      <div className="space-y-4">
+        <Link
+          href="/search"
+          className="text-sky-400 hover:text-sky-300 text-sm"
+        >
+          Back to search
+        </Link>
+        <div className="bg-red-500/10 border border-red-500/30 text-red-300 rounded-xl p-4 text-sm">
+          {error || "File not found"}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -73,7 +132,9 @@ Signed and agreed by authorized representatives of both parties.`,
           <ArrowLeft className="w-5 h-5 text-gray-400" />
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-white">{file.name}</h1>
+          <h1 className="text-2xl font-bold text-white">
+            {file.name || "Untitled"}
+          </h1>
           <p className="text-gray-400 text-sm mt-0.5">
             File Details & OCR Text
           </p>
@@ -106,7 +167,7 @@ Signed and agreed by authorized representatives of both parties.`,
                 <div>
                   <p className="text-xs text-gray-500">Physical Location</p>
                   <p className="text-sm font-medium text-white">
-                    {file.location}
+                    {file.physicalLocation || file.location || "Unknown"}
                   </p>
                 </div>
               </div>
@@ -115,7 +176,7 @@ Signed and agreed by authorized representatives of both parties.`,
                 <div>
                   <p className="text-xs text-gray-500">Department</p>
                   <p className="text-sm font-medium text-white">
-                    {file.department}
+                    {file.department || "General"}
                   </p>
                 </div>
               </div>
@@ -124,7 +185,7 @@ Signed and agreed by authorized representatives of both parties.`,
                 <div>
                   <p className="text-xs text-gray-500">Date Added</p>
                   <p className="text-sm font-medium text-white">
-                    {file.dateAdded}
+                    {formatDate(file.uploadedAt)}
                   </p>
                 </div>
               </div>
@@ -133,7 +194,7 @@ Signed and agreed by authorized representatives of both parties.`,
                 <div>
                   <p className="text-xs text-gray-500">Last Modified</p>
                   <p className="text-sm font-medium text-white">
-                    {file.dateModified}
+                    {formatDate(file.modifiedAt)}
                   </p>
                 </div>
               </div>
@@ -142,7 +203,7 @@ Signed and agreed by authorized representatives of both parties.`,
                 <div>
                   <p className="text-xs text-gray-500">Added By</p>
                   <p className="text-sm font-medium text-white">
-                    {file.addedBy}
+                    {file.uploadedBy || "system"}
                   </p>
                 </div>
               </div>
@@ -151,7 +212,7 @@ Signed and agreed by authorized representatives of both parties.`,
                 <div>
                   <p className="text-xs text-gray-500">Modified By</p>
                   <p className="text-sm font-medium text-white">
-                    {file.modifiedBy}
+                    {file.modifiedBy || file.uploadedBy || "system"}
                   </p>
                 </div>
               </div>
@@ -160,7 +221,7 @@ Signed and agreed by authorized representatives of both parties.`,
                 <div>
                   <p className="text-xs text-gray-500">File Type</p>
                   <span className="text-xs bg-white/10 text-gray-400 px-2 py-0.5 rounded-full">
-                    {file.type}
+                    {file.documentType || file.fileType || "Document"}
                   </span>
                 </div>
               </div>
@@ -174,7 +235,7 @@ Signed and agreed by authorized representatives of both parties.`,
               Tags
             </h2>
             <div className="flex flex-wrap gap-2">
-              {file.tags.map((tag) => (
+              {tags.map((tag) => (
                 <span
                   key={tag}
                   className="bg-sky-500/20 text-sky-400 px-3 py-1 rounded-full text-xs font-medium"
@@ -188,7 +249,7 @@ Signed and agreed by authorized representatives of both parties.`,
           {/* Notes */}
           <div className="bg-amber-500/10 rounded-2xl border border-amber-500/20 p-6">
             <h2 className="font-semibold text-amber-300 text-sm mb-2">Notes</h2>
-            <p className="text-sm text-amber-200/80">{file.notes}</p>
+            <p className="text-sm text-amber-200/80">{file.notes || "-"}</p>
           </div>
         </div>
 
@@ -202,7 +263,7 @@ Signed and agreed by authorized representatives of both parties.`,
               </button>
             </div>
             <div className="bg-black/30 rounded-xl p-6 text-sm text-gray-300 leading-relaxed whitespace-pre-wrap max-h-[600px] overflow-y-auto font-mono border border-white/10">
-              {file.ocrText}
+              {file.ocrText || "(No text detected by OCR)"}
             </div>
           </div>
         </div>
