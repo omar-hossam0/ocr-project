@@ -8,12 +8,9 @@ import {
   Phone,
   Building2,
   Shield,
-  Lock,
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Eye,
-  EyeOff,
 } from "lucide-react";
 import { useAuth } from "@/app/lib/auth-context";
 import {
@@ -24,8 +21,7 @@ import {
 } from "@/app/lib/firestore";
 
 export default function ProfilePage() {
-  const { user, updateUserProfile, updateUserPassword, refreshUser } =
-    useAuth();
+  const { user, updateUserProfile, refreshUser } = useAuth();
 
   const [displayName, setDisplayName] = useState("");
   const [phone, setPhone] = useState("");
@@ -34,20 +30,12 @@ export default function ProfilePage() {
   const [bio, setBio] = useState("");
   const [photoURL, setPhotoURL] = useState<string | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
 
   const [saving, setSaving] = useState(false);
-  const [savingPassword, setSavingPassword] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
-  const [passwordSuccess, setPasswordSuccess] = useState("");
-  const [passwordError, setPasswordError] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -128,7 +116,6 @@ export default function ProfilePage() {
         URL.revokeObjectURL(previewUrl);
         setPhotoPreview(null);
         setPhotoURL(url);
-        setPhotoFile(null);
 
         // Use current displayName or existing one
         const currentName = displayName.trim() || user.displayName || "User";
@@ -207,39 +194,6 @@ export default function ProfilePage() {
     updateUserProfile,
     refreshUser,
   ]);
-
-  const handlePasswordChange = useCallback(async () => {
-    if (!newPassword || !confirmPassword) {
-      setPasswordError("Please fill in both password fields");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordError("Passwords do not match");
-      return;
-    }
-    if (newPassword.length < 6) {
-      setPasswordError("Password must be at least 6 characters");
-      return;
-    }
-
-    setSavingPassword(true);
-    setPasswordError("");
-    setPasswordSuccess("");
-
-    try {
-      await updateUserPassword(newPassword);
-      setPasswordSuccess("Password updated successfully!");
-      setNewPassword("");
-      setConfirmPassword("");
-      setTimeout(() => setPasswordSuccess(""), 3000);
-    } catch (err) {
-      setPasswordError(
-        err instanceof Error ? err.message : "Failed to update password",
-      );
-    } finally {
-      setSavingPassword(false);
-    }
-  }, [newPassword, confirmPassword, updateUserPassword]);
 
   const currentPhoto = useMemo(
     () => photoPreview || photoURL,
@@ -468,94 +422,6 @@ export default function ProfilePage() {
               <Save className="w-4 h-4" />
             )}
             {saving ? "Saving..." : "Save Profile"}
-          </button>
-        </div>
-      </div>
-
-      {/* Change Password Card */}
-      <div className="glass-card p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center">
-            <Lock className="w-5 h-5 text-amber-400" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-white">Change Password</h2>
-            <p className="text-xs text-gray-500">
-              Use a strong password with at least 6 characters
-            </p>
-          </div>
-        </div>
-
-        {passwordSuccess && (
-          <div className="mb-4 flex items-center gap-2 text-green-400 bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-3 text-sm">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            {passwordSuccess}
-          </div>
-        )}
-        {passwordError && (
-          <div className="mb-4 flex items-center gap-2 text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 text-sm">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            {passwordError}
-          </div>
-        )}
-
-        <div className="grid sm:grid-cols-2 gap-5">
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              New Password
-            </label>
-            <div className="relative">
-              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-              <input
-                type={showPassword ? "text" : "password"}
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="New password"
-                className="w-full pl-10 pr-10 py-3 rounded-xl border border-white/15 bg-white/10 text-white placeholder-gray-500 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500/50 transition"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
-              >
-                {showPassword ? (
-                  <EyeOff className="w-4 h-4" />
-                ) : (
-                  <Eye className="w-4 h-4" />
-                )}
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              Confirm Password
-            </label>
-            <div className="relative">
-              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-              <input
-                type={showPassword ? "text" : "password"}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Confirm new password"
-                className="w-full pl-10 pr-4 py-3 rounded-xl border border-white/15 bg-white/10 text-white placeholder-gray-500 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500/50 transition"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end">
-          <button
-            onClick={handlePasswordChange}
-            disabled={savingPassword}
-            className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {savingPassword ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Lock className="w-4 h-4" />
-            )}
-            {savingPassword ? "Updating..." : "Update Password"}
           </button>
         </div>
       </div>
