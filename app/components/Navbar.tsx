@@ -48,7 +48,7 @@ const NAV_ITEMS = [
 ];
 
 export default function Navbar() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -160,6 +160,26 @@ export default function Navbar() {
     router.push("/login");
   };
 
+  const requiresAuth = (href: string) => {
+    return ["/dashboard", "/upload", "/search", "/settings", "/tracking"].some(
+      (protectedHref) => href === protectedHref || href.startsWith(`${protectedHref}/`),
+    );
+  };
+
+  const handleNavLinkClick = (
+    event: React.MouseEvent<HTMLAnchorElement>,
+    href: string,
+  ) => {
+    if (!user && requiresAuth(href)) {
+      event.preventDefault();
+      closeMenu();
+      router.push("/login");
+      return;
+    }
+
+    closeMenu();
+  };
+
   return (
     <div className="fixed left-1/2 -translate-x-1/2 w-[90%] max-w-[820px] z-50 top-[1.2em] md:top-[1.5em]">
       <nav
@@ -230,7 +250,7 @@ export default function Navbar() {
                     key={lnk.label}
                     href={lnk.href}
                     aria-label={lnk.ariaLabel}
-                    onClick={closeMenu}
+                    onClick={(event) => handleNavLinkClick(event, lnk.href)}
                     className="inline-flex items-center gap-1.5 text-[14px] md:text-[15px] text-white/80 hover:text-white transition-opacity hover:opacity-100 opacity-75"
                   >
                     <GoArrowUpRight className="shrink-0" aria-hidden="true" />
