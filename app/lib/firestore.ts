@@ -42,7 +42,7 @@ export interface FileData {
   ocrText: string;
   storageUrl?: string;
   fileSize: number;
-  status?: "available" | "checked_out" | "in_archive";
+  status?: "available" | "checked_out" | "in_archive" | "processing" | "failed";
 }
 
 /**
@@ -68,6 +68,8 @@ export async function addFile(fileData: FileData) {
 
     // Update realtime DB stats
     await updateFileStats("add", fileData.department);
+
+    clearFilesCache();
 
     return docRef.id;
   } catch (error: unknown) {
@@ -389,6 +391,7 @@ export async function updateFile(id: string, updates: Partial<FileData>) {
       ...updates,
       modifiedAt: new Date(),
     });
+    clearFilesCache();
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Failed to update file";
@@ -409,6 +412,7 @@ export async function deleteFile(id: string, storagePath?: string) {
     // Delete from firestore
     const docRef = doc(db, "files", id);
     await deleteDoc(docRef);
+    clearFilesCache();
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Failed to delete file";

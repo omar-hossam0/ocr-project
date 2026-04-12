@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Upload,
@@ -14,7 +14,38 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/app/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
-import { uploadFileToStorage, addFile } from "@/app/lib/firestore";
+
+type FileStatus =
+  | "available"
+  | "processing"
+  | "failed"
+  | "checked_out"
+  | "in_archive";
+const OCR_JOB_STORAGE_KEY = "ocrBackgroundFileId";
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(
+        new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s`),
+      );
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
 
 export default function UploadPage() {
   const router = useRouter();
@@ -31,36 +62,372 @@ export default function UploadPage() {
   const [processing, setProcessing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraLoading, setCameraLoading] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [ocrEngineInfo, setOcrEngineInfo] = useState("");
+  const [backgroundFileId, setBackgroundFileId] = useState<string | null>(null);
+  const [backgroundStatus, setBackgroundStatus] = useState<FileStatus | "idle">(
+    "idle",
+  );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const persistFileRecord = useCallback(
+    async (targetFile: File, ocrTextValue: string) => {
+      if (!user) {
+        const msg = "Missing user";
+        setError(msg);
+        showToast(msg, "error");
+        return;
+      }
+
+      setUploading(true);
+      setError("");
+
+      try {
+        const metadataPayload = {
+          name: fileName || targetFile.name,
+          originalName: targetFile.name,
+          location,
+          physicalLocation: location,
+          department,
+          fileType: targetFile.type,
+          documentType: targetFile.type,
+          uploadedBy: user.email || "",
+          modifiedBy: user.email || "",
+          tags: tags
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean),
+          notes,
+          ocrText: ocrTextValue,
+          fileSize: targetFile.size,
+          uploadedAt: new Date(),
+          modifiedAt: new Date(),
+          status: "available" as const,
+        };
+
+        const saveResponse = await fetch("/api/files", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(metadataPayload),
+        });
+
+        const saveJson = (await saveResponse.json()) as {
+          success?: boolean;
+          error?: string;
+          data?: { id?: string };
+        };
+
+        if (!saveResponse.ok || !saveJson.success) {
+          throw new Error(
+            saveJson.error || "Failed to save file metadata via backend API",
+          );
+        }
+
+        return saveJson.data?.id || null;
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : "Error uploading file";
+        setError(errorMessage);
+        showToast(errorMessage, "error");
+        return null;
+      } finally {
+        setUploading(false);
+      }
+    },
+    [user, fileName, location, department, tags, notes, showToast],
+  );
+
+  const pollBackgroundResult = useCallback(async (fileId: string) => {
+    const startedAt = Date.now();
+    const timeoutMs = 7 * 60 * 1000;
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const response = await fetch(`/api/files/${fileId}`, {
+        cache: "no-store",
+      });
+      const json = (await response.json()) as {
+        success?: boolean;
+        data?: { ocrText?: string; status?: FileStatus; notes?: string };
+        error?: string;
+      };
+
+      if (!response.ok || !json.success || !json.data) {
+        throw new Error(json.error || "Failed to read OCR job status");
+      }
+
+      const status = json.data.status;
+      const text = (json.data.ocrText || "").trim();
+      setBackgroundStatus(status || "processing");
+
+      if (status === "failed") {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem(OCR_JOB_STORAGE_KEY);
+        }
+        throw new Error(json.data.notes || "OCR failed");
+      }
+
+      if (status === "available") {
+        setOcrResult(text || "(No text detected by OCR)");
+        setOcrEngineInfo("background queue");
+        if (typeof window !== "undefined") {
+          localStorage.removeItem(OCR_JOB_STORAGE_KEY);
+        }
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1800));
+    }
+
+    throw new Error("OCR timed out. It may still finish in background.");
+  }, []);
+
+  const queueOcrWithPersistence = useCallback(
+    async (targetFile: File) => {
+      if (!user) {
+        const msg = "Missing user";
+        setError(msg);
+        showToast(msg, "error");
+        return;
+      }
+
+      setProcessing(true);
+      setError("");
+
+      try {
+        setOcrEngineInfo("running OCR model...");
+
+        const formData = new FormData();
+        formData.append("file", targetFile);
+
+        const ocrResponse = await withTimeout(
+          fetch("/api/ocr", {
+            method: "POST",
+            body: formData,
+          }),
+          300000,
+          "OCR processing",
+        );
+
+        const ocrJson = (await ocrResponse.json()) as {
+          success?: boolean;
+          data?: { text?: string; engine?: string; device?: string };
+          error?: string;
+        };
+
+        if (!ocrResponse.ok || !ocrJson.success) {
+          throw new Error(ocrJson.error || "Failed to run OCR");
+        }
+
+        const text = (ocrJson.data?.text || "").trim();
+        setOcrResult(text || "(No text detected by OCR)");
+        setOcrEngineInfo(
+          `${ocrJson.data?.engine || "easyocr"} • ${ocrJson.data?.device || "cpu"}`,
+        );
+
+        setOcrEngineInfo("saving file record to database...");
+        const savedFileId = await persistFileRecord(targetFile, text);
+        if (savedFileId) {
+          setBackgroundFileId(savedFileId);
+          setBackgroundStatus("available");
+          if (typeof window !== "undefined") {
+            localStorage.removeItem(OCR_JOB_STORAGE_KEY);
+          }
+        }
+
+        showToast("OCR finished and saved to database", "success");
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : "Error processing file";
+        setError(errorMessage);
+        setOcrEngineInfo("queue failed");
+        showToast(errorMessage, "error");
+      } finally {
+        setProcessing(false);
+      }
+    },
+    [user, persistFileRecord, showToast],
+  );
 
   const handleFileSelect = useCallback((selected: File) => {
     setFile(selected);
     setFileName(selected.name.replace(/\.[^.]+$/, ""));
     setOcrResult("");
+    setOcrEngineInfo("");
     setError("");
   }, []);
 
+  const stopCamera = useCallback(() => {
+    const tracks = streamRef.current?.getTracks() || [];
+    tracks.forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
+  const startCamera = useCallback(async () => {
+    setError("");
+    setCameraLoading(true);
+    setCameraReady(false);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+        },
+        audio: false,
+      });
+
+      streamRef.current = stream;
+      setCameraOpen(true);
+    } catch (err) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Cannot access camera. Please allow permission.";
+      setError(message);
+      showToast(message, "error");
+    } finally {
+      setCameraLoading(false);
+    }
+  }, [showToast]);
+
+  const closeCamera = useCallback(() => {
+    stopCamera();
+    setCameraOpen(false);
+  }, [stopCamera]);
+
+  const captureFromCamera = useCallback(async () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+
+    if (!video || !canvas) {
+      return;
+    }
+
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+
+    if (!width || !height) {
+      const msg = "Camera is not ready yet";
+      setError(msg);
+      showToast(msg, "error");
+      return;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return;
+    }
+
+    ctx.drawImage(video, 0, 0, width, height);
+
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/jpeg", 0.95);
+    });
+
+    if (!blob) {
+      const msg = "Failed to capture image from camera";
+      setError(msg);
+      showToast(msg, "error");
+      return;
+    }
+
+    const capturedFile = new File([blob], `camera_capture_${Date.now()}.jpg`, {
+      type: "image/jpeg",
+    });
+
+    handleFileSelect(capturedFile);
+    closeCamera();
+    showToast("Camera image captured", "success");
+    await queueOcrWithPersistence(capturedFile);
+  }, [closeCamera, handleFileSelect, queueOcrWithPersistence, showToast]);
+
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, [stopCamera]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const storedId = localStorage.getItem(OCR_JOB_STORAGE_KEY);
+    if (!storedId) {
+      return;
+    }
+
+    setBackgroundFileId(storedId);
+    setBackgroundStatus("processing");
+
+    void pollBackgroundResult(storedId)
+      .then(() => {
+        setBackgroundStatus("available");
+      })
+      .catch(() => {
+        setBackgroundStatus("failed");
+      });
+  }, [pollBackgroundResult]);
+
+  useEffect(() => {
+    if (!cameraOpen) {
+      return;
+    }
+
+    const stream = streamRef.current;
+    const video = videoRef.current;
+    if (!stream || !video) {
+      return;
+    }
+
+    let canceled = false;
+    video.srcObject = stream;
+
+    const startPreview = async () => {
+      try {
+        await video.play();
+        if (!canceled) {
+          setCameraReady(true);
+        }
+      } catch {
+        if (!canceled) {
+          setError(
+            "Camera opened but preview failed to start. Try closing and scanning again.",
+          );
+        }
+      }
+    };
+
+    if (video.readyState >= 2) {
+      void startPreview();
+    } else {
+      const onLoaded = () => {
+        void startPreview();
+      };
+      video.addEventListener("loadedmetadata", onLoaded, { once: true });
+    }
+
+    return () => {
+      canceled = true;
+    };
+  }, [cameraOpen]);
+
   const handleUpload = useCallback(async () => {
     if (!file || !user) return;
-
-    setProcessing(true);
-    try {
-      // Simulate OCR processing
-      setTimeout(() => {
-        setOcrResult(
-          "This is a sample extracted text from the uploaded document. The OCR engine has successfully recognized all text content including headers, paragraphs, and structured data. Document ID: DOC-2026-0384. Date: March 9, 2026. Department: Legal Affairs. The document contains important contract information that has been extracted and organized for easy searching and reference.",
-        );
-        setProcessing(false);
-      }, 1500);
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Error processing file";
-      setError(errorMessage);
-      showToast(errorMessage, "error");
-      setProcessing(false);
-    }
-  }, [file, user, showToast]);
+    await queueOcrWithPersistence(file);
+  }, [file, user, queueOcrWithPersistence]);
 
   const handlePublish = useCallback(async () => {
     if (!file || !user) {
@@ -70,70 +437,29 @@ export default function UploadPage() {
       return;
     }
 
+    if (backgroundFileId) {
+      showToast("File already saved via backend OCR flow", "success");
+      router.push("/dashboard");
+      return;
+    }
+
     setUploading(true);
     setError("");
 
     try {
-      // Upload file to Firebase Storage
-      const { url } = await uploadFileToStorage(
-        file,
-        user.uid,
-        fileName || file.name,
-      );
-
-      // Save file metadata to Firestore
-      await addFile({
-        name: fileName || file.name,
-        originalName: file.name,
-        location,
-        department,
-        fileType: file.type,
-        uploadedBy: user.email || "",
-        modifiedBy: user.email || "",
-        tags: tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
-        notes,
-        ocrText: ocrResult,
-        storageUrl: url,
-        fileSize: file.size,
-        uploadedAt: new Date(),
-        modifiedAt: new Date(),
-      });
-
-      // Show success message
-      showToast(
-        `File "${fileName || file.name}" uploaded successfully!`,
-        "success",
-      );
-      console.log(
-        `✓ File "${fileName || file.name}" uploaded successfully to ${location} (${department})`,
-      );
-
-      // Redirect after 2 seconds so user sees the toast
-      setTimeout(() => {
-        setFile(null);
-        setOcrResult("");
-        router.push("/dashboard");
-      }, 2000);
+      await persistFileRecord(file, ocrResult);
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Error uploading file";
       setError(errorMessage);
       showToast(errorMessage, "error");
-    } finally {
-      setUploading(false);
     }
   }, [
     file,
     user,
-    fileName,
-    location,
-    department,
-    tags,
-    notes,
+    backgroundFileId,
     ocrResult,
+    persistFileRecord,
     router,
     showToast,
   ]);
@@ -200,7 +526,7 @@ export default function UploadPage() {
                   Drop your documents here
                 </p>
                 <p className="text-gray-400 text-sm mt-1">
-                  PDF, DOCX, JPG, PNG up to 50MB
+                  PDF, JPG, PNG, BMP, TIFF up to 50MB
                 </p>
                 <div className="flex items-center justify-center gap-3 mt-6">
                   <button
@@ -212,16 +538,20 @@ export default function UploadPage() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".pdf,.docx,.doc,.jpg,.jpeg,.png,.txt"
+                    accept=".pdf,.jpg,.jpeg,.png,.bmp,.tif,.tiff,.webp"
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (f) handleFileSelect(f);
                     }}
                   />
-                  <button className="border border-white/20 text-gray-300 px-6 py-2.5 rounded-full text-sm font-medium hover:bg-white/10 transition flex items-center gap-2">
+                  <button
+                    onClick={startCamera}
+                    disabled={cameraLoading}
+                    className="border border-white/20 text-gray-300 px-6 py-2.5 rounded-full text-sm font-medium hover:bg-white/10 transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
                     <Camera className="w-4 h-4" />
-                    Scan
+                    {cameraLoading ? "Starting Camera..." : "Scan"}
                   </button>
                 </div>
               </>
@@ -340,7 +670,7 @@ export default function UploadPage() {
                 ) : (
                   <>
                     <Upload className="w-4 h-4" />
-                    Upload & OCR
+                    Start OCR & Save
                   </>
                 )}
               </button>
@@ -371,6 +701,16 @@ export default function UploadPage() {
             <h2 className="font-semibold text-white mb-4">
               OCR Extracted Text
             </h2>
+            {backgroundFileId && (
+              <p className="text-xs text-gray-400 mb-2">
+                Job ID: {backgroundFileId} | Status: {backgroundStatus}
+              </p>
+            )}
+            {ocrEngineInfo && (
+              <p className="text-xs text-sky-300 mb-3">
+                Model: {ocrEngineInfo}
+              </p>
+            )}
             {ocrResult ? (
               <div className="bg-white/5 rounded-xl p-4 text-sm text-gray-300 leading-relaxed max-h-80 overflow-y-auto">
                 {ocrResult}
@@ -379,8 +719,7 @@ export default function UploadPage() {
               <div className="bg-white/5 rounded-xl p-8 text-center">
                 <FileText className="w-10 h-10 text-gray-600 mx-auto mb-3" />
                 <p className="text-sm text-gray-500">
-                  Upload a file and click &quot;Upload & OCR&quot; to extract
-                  text
+                  Select a file or scan with camera to run the real OCR model
                 </p>
               </div>
             )}
@@ -396,11 +735,58 @@ export default function UploadPage() {
               <li>• Use high-resolution scans (300 DPI+)</li>
               <li>• Ensure text is clearly visible</li>
               <li>• Avoid blurry or tilted images</li>
-              <li>• Supported: PDF, DOCX, JPG, PNG</li>
+              <li>• OCR model supports: PDF and image files</li>
             </ul>
           </div>
         </div>
       </div>
+
+      {cameraOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl rounded-2xl border border-white/20 bg-[#060b16] p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-white font-semibold">Camera Capture</h3>
+              <button
+                onClick={closeCamera}
+                className="p-2 rounded-lg hover:bg-white/10 text-gray-300"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full aspect-video object-cover rounded-xl bg-black"
+            />
+
+            {!cameraReady && (
+              <p className="text-xs text-gray-400">
+                Initializing camera preview...
+              </p>
+            )}
+
+            <canvas ref={canvasRef} className="hidden" />
+
+            <div className="flex gap-3">
+              <button
+                onClick={captureFromCamera}
+                className="bg-sky-500 hover:bg-sky-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium"
+              >
+                Capture & Use
+              </button>
+              <button
+                onClick={closeCamera}
+                className="border border-white/20 text-gray-300 px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-white/10"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

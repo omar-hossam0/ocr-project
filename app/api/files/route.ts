@@ -1,9 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getAllFiles,
-  addFile,
-  FileData,
-} from "@/app/lib/firestore";
+import { getAllFiles, addFile, FileData } from "@/app/lib/firestore";
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s`),
+      );
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
 
 /**
  * GET /api/files
@@ -11,7 +31,7 @@ import {
  */
 export async function GET() {
   try {
-    const files = await getAllFiles();
+    const files = await getAllFiles(true);
 
     return NextResponse.json({
       success: true,
@@ -73,12 +93,19 @@ export async function POST(request: NextRequest) {
       tags: Array.isArray(body.tags) ? body.tags : [],
       notes: body.notes || "",
       ocrText,
-      storageUrl: body.storageUrl,
       fileSize: Number(body.fileSize || 0),
       status: body.status || "available",
     };
 
-    const createdId = await addFile(filePayload);
+    if (typeof body.storageUrl === "string" && body.storageUrl.trim()) {
+      filePayload.storageUrl = body.storageUrl;
+    }
+
+    const createdId = await withTimeout(
+      addFile(filePayload),
+      20000,
+      "Saving file metadata",
+    );
 
     return NextResponse.json(
       {
