@@ -162,7 +162,8 @@ export default function Navbar() {
 
   const requiresAuth = (href: string) => {
     return ["/dashboard", "/upload", "/search", "/settings", "/tracking"].some(
-      (protectedHref) => href === protectedHref || href.startsWith(`${protectedHref}/`),
+      (protectedHref) =>
+        href === protectedHref || href.startsWith(`${protectedHref}/`),
     );
   };
 
