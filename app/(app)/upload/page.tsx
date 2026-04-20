@@ -5,15 +5,18 @@ import {
   Upload,
   Camera,
   FileText,
+  FileImage,
   MapPin,
   Tag,
   CheckCircle2,
   AlertCircle,
   X,
   Loader2,
+  Download,
 } from "lucide-react";
 import { useAuth } from "@/app/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
+import OcrSearchableText from "@/components/OcrSearchableText";
 
 type FileStatus =
   | "available"
@@ -75,6 +78,167 @@ export default function UploadPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  const getSafeExportBaseName = useCallback(() => {
+    const rawBase = (fileName || file?.name || "ocr_result")
+      .replace(/\.[^.]+$/, "")
+      .trim();
+
+    const sanitized = rawBase.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
+    return sanitized || "ocr_result";
+  }, [fileName, file]);
+
+  const downloadBlob = useCallback((blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+
+    // Keep blob URL alive briefly to avoid browser race conditions
+    // that can result in broken or missing downloaded files.
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 1500);
+  }, []);
+
+  const downloadAsTxt = useCallback(() => {
+    if (!ocrResult.trim()) return;
+
+    const blob = new Blob([ocrResult], {
+      type: "text/plain;charset=utf-8",
+    });
+    downloadBlob(blob, `${getSafeExportBaseName()}.txt`);
+    showToast("TXT file downloaded", "success");
+  }, [ocrResult, downloadBlob, getSafeExportBaseName, showToast]);
+
+  const downloadAsPdf = useCallback(async () => {
+    if (!ocrResult.trim()) return;
+
+    try {
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF({
+        unit: "pt",
+        format: "a4",
+      });
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 40;
+      const lineHeight = 16;
+      const maxTextWidth = pageWidth - margin * 2;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+
+      const lines = doc.splitTextToSize(ocrResult, maxTextWidth) as string[];
+      let y = margin;
+
+      for (const line of lines) {
+        if (y > pageHeight - margin) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(line, margin, y);
+        y += lineHeight;
+      }
+
+      const pdfBlob = doc.output("blob") as Blob;
+      downloadBlob(pdfBlob, `${getSafeExportBaseName()}.pdf`);
+      showToast("PDF file downloaded", "success");
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to generate PDF";
+      setError(errorMessage);
+      showToast(errorMessage, "error");
+    }
+  }, [ocrResult, downloadBlob, getSafeExportBaseName, showToast]);
+
+  const downloadAsPng = useCallback(async () => {
+    if (!ocrResult.trim()) return;
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      showToast("Failed to generate PNG", "error");
+      return;
+    }
+
+    const width = 1400;
+    const padding = 60;
+    const titleFont = "bold 42px Arial";
+    const bodyFont = "28px Arial";
+    const lineHeight = 40;
+
+    ctx.font = bodyFont;
+    const maxLineWidth = width - padding * 2;
+    const wrappedLines: string[] = [];
+
+    for (const paragraph of ocrResult.split(/\r?\n/)) {
+      if (!paragraph.trim()) {
+        wrappedLines.push("");
+        continue;
+      }
+
+      const words = paragraph.split(/\s+/);
+      let currentLine = "";
+
+      for (const word of words) {
+        const candidate = currentLine ? `${currentLine} ${word}` : word;
+        if (ctx.measureText(candidate).width <= maxLineWidth) {
+          currentLine = candidate;
+        } else {
+          if (currentLine) wrappedLines.push(currentLine);
+          currentLine = word;
+        }
+      }
+
+      if (currentLine) wrappedLines.push(currentLine);
+    }
+
+    const minHeight = 900;
+    const headerHeight = 120;
+    const textBlockHeight = wrappedLines.length * lineHeight;
+    const height = Math.max(
+      minHeight,
+      headerHeight + textBlockHeight + padding,
+    );
+
+    canvas.width = width;
+    canvas.height = height;
+
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.fillStyle = "#38bdf8";
+    ctx.font = titleFont;
+    ctx.fillText("OCR Extracted Text", padding, 70);
+
+    ctx.fillStyle = "#e5e7eb";
+    ctx.font = bodyFont;
+    let y = headerHeight;
+
+    for (const line of wrappedLines) {
+      if (line) {
+        ctx.fillText(line, padding, y);
+      }
+      y += lineHeight;
+    }
+
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas.toBlob(resolve, "image/png");
+    });
+
+    if (!blob) {
+      showToast("Failed to generate PNG", "error");
+      return;
+    }
+
+    downloadBlob(blob, `${getSafeExportBaseName()}.png`);
+    showToast("PNG image downloaded", "success");
+  }, [ocrResult, downloadBlob, getSafeExportBaseName, showToast]);
 
   const persistFileRecord = useCallback(
     async (targetFile: File, ocrTextValue: string) => {
@@ -656,7 +820,7 @@ export default function UploadPage() {
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <button
                 onClick={handleUpload}
                 disabled={!file || processing}
@@ -712,8 +876,35 @@ export default function UploadPage() {
               </p>
             )}
             {ocrResult ? (
-              <div className="bg-white/5 rounded-xl p-4 text-sm text-gray-300 leading-relaxed max-h-80 overflow-y-auto">
-                {ocrResult}
+              <div className="space-y-4">
+                <OcrSearchableText
+                  text={ocrResult}
+                  inputPlaceholder="Search word or sentence in OCR result..."
+                  textContainerClassName="bg-white/5 rounded-xl p-4 text-sm text-gray-300 leading-relaxed max-h-80 overflow-y-auto whitespace-pre-wrap"
+                />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button
+                    onClick={downloadAsPdf}
+                    className="w-full bg-sky-500/20 border border-sky-400/30 text-sky-200 px-3 py-2.5 rounded-lg text-xs font-medium hover:bg-sky-500/30 transition flex items-center justify-center gap-2"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download PDF
+                  </button>
+                  <button
+                    onClick={downloadAsTxt}
+                    className="w-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 px-3 py-2.5 rounded-lg text-xs font-medium hover:bg-emerald-500/30 transition flex items-center justify-center gap-2"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    Download TXT
+                  </button>
+                  <button
+                    onClick={downloadAsPng}
+                    className="w-full bg-orange-500/20 border border-orange-400/30 text-orange-200 px-3 py-2.5 rounded-lg text-xs font-medium hover:bg-orange-500/30 transition flex items-center justify-center gap-2"
+                  >
+                    <FileImage className="w-3.5 h-3.5" />
+                    Download PNG
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="bg-white/5 rounded-xl p-8 text-center">
@@ -770,7 +961,7 @@ export default function UploadPage() {
 
             <canvas ref={canvasRef} className="hidden" />
 
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <button
                 onClick={captureFromCamera}
                 className="bg-sky-500 hover:bg-sky-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium"

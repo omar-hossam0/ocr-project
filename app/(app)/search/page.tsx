@@ -10,7 +10,15 @@ import {
   MapPin,
   Calendar,
   X,
+  Trash2,
+  Loader2,
 } from "lucide-react";
+import {
+  clearFilesClientCache,
+  fetchFilesClient,
+  getFilesCacheSnapshot,
+} from "@/app/lib/client-files-cache";
+import { useToast } from "@/components/ToastProvider";
 
 type SearchFile = {
   id: string;
@@ -38,8 +46,11 @@ function formatDate(value: SearchFile["uploadedAt"]) {
 }
 
 export default function SearchPage() {
-  const [allFiles, setAllFiles] = useState<SearchFile[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { showToast, showConfirmToast } = useToast();
+  const cached = getFilesCacheSnapshot<SearchFile>();
+  const [allFiles, setAllFiles] = useState<SearchFile[]>(cached || []);
+  const [loading, setLoading] = useState(!cached);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [typeFilter, setTypeFilter] = useState("All");
@@ -50,19 +61,20 @@ export default function SearchPage() {
 
     const load = async () => {
       try {
-        const response = await fetch("/api/files", { cache: "no-store" });
-        const json = (await response.json()) as {
-          success?: boolean;
-          data?: SearchFile[];
-        };
+        const data = await fetchFilesClient<SearchFile>();
 
-        if (
-          !cancelled &&
-          response.ok &&
-          json.success &&
-          Array.isArray(json.data)
-        ) {
-          setAllFiles(json.data);
+        if (!cancelled) {
+          setAllFiles((previous) => {
+            if (previous.length === data.length) {
+              const sameIds = previous.every(
+                (item, index) => item.id === data[index]?.id,
+              );
+              if (sameIds) {
+                return previous;
+              }
+            }
+            return data;
+          });
         }
       } catch {
         if (!cancelled) {
@@ -106,6 +118,48 @@ export default function SearchPage() {
       return matchQuery && matchType && matchDept;
     });
   }, [allFiles, query, typeFilter, deptFilter]);
+
+  const handleDelete = async (file: SearchFile) => {
+    if (deletingId) return;
+
+    const confirmed = await showConfirmToast(
+      `Delete "${file.name || "Untitled"}" permanently from database?`,
+      {
+        confirmText: "Delete",
+        cancelText: "Cancel",
+      },
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingId(file.id);
+    try {
+      const response = await fetch(`/api/files/${file.id}`, {
+        method: "DELETE",
+      });
+
+      const json = (await response.json()) as {
+        success?: boolean;
+        error?: string;
+      };
+
+      if (!response.ok || !json.success) {
+        throw new Error(json.error || "Failed to delete file");
+      }
+
+      setAllFiles((prev) => prev.filter((item) => item.id !== file.id));
+      clearFilesClientCache();
+      showToast("File deleted permanently", "success");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to delete file";
+      showToast(message, "error");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -258,6 +312,19 @@ export default function SearchPage() {
                   </button>
                 </div>
               </div>
+              <button
+                onClick={() => void handleDelete(file)}
+                disabled={deletingId === file.id}
+                className="self-end sm:self-start sm:ml-2 p-2 rounded-lg border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                title="Delete file"
+                aria-label={`Delete ${file.name || "file"}`}
+              >
+                {deletingId === file.id ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
+              </button>
             </div>
           </div>
         ))}

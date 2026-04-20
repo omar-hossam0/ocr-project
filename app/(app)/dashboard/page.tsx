@@ -14,6 +14,10 @@ import {
   FolderOpen,
 } from "lucide-react";
 import WelcomeBanner from "./WelcomeBanner";
+import {
+  fetchFilesClient,
+  getFilesCacheSnapshot,
+} from "@/app/lib/client-files-cache";
 
 type FileRecord = {
   id: string;
@@ -64,27 +68,29 @@ const SHORTCUTS = [
 ];
 
 export default function DashboardPage() {
-  const [files, setFiles] = useState<FileRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cached = getFilesCacheSnapshot<FileRecord>();
+  const [files, setFiles] = useState<FileRecord[]>(cached || []);
+  const [loading, setLoading] = useState(!cached);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadFiles = async () => {
       try {
-        const response = await fetch("/api/files", { cache: "no-store" });
-        const json = (await response.json()) as {
-          success?: boolean;
-          data?: FileRecord[];
-        };
+        const data = await fetchFilesClient<FileRecord>();
 
-        if (
-          !cancelled &&
-          response.ok &&
-          json.success &&
-          Array.isArray(json.data)
-        ) {
-          setFiles(json.data);
+        if (!cancelled) {
+          setFiles((previous) => {
+            if (previous.length === data.length) {
+              const sameIds = previous.every(
+                (item, index) => item.id === data[index]?.id,
+              );
+              if (sameIds) {
+                return previous;
+              }
+            }
+            return data;
+          });
         }
       } catch {
         if (!cancelled) {
@@ -187,7 +193,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat) => (
           <div key={stat.label} className="glass-card glass-card-hover p-5">
             <div className="flex items-center justify-between mb-3">
@@ -204,7 +210,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Shortcuts */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {shortcuts.map((item) => (
           <Link
             key={item.label}

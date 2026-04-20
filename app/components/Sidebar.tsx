@@ -94,8 +94,9 @@ function AppSidebar() {
                     asChild
                     tooltip={item.label}
                     isActive={isActive}
+                    className="ui-hover-lift"
                   >
-                    <Link href={item.href}>
+                    <Link href={item.href} prefetch>
                       <item.icon />
                       <span>{item.label}</span>
                     </Link>
@@ -115,7 +116,7 @@ function AppSidebar() {
               <DropdownMenuTrigger asChild>
                 <SidebarMenuButton
                   size="lg"
-                  className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                  className="ui-hover-lift data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
                 >
                   <Avatar className="h-8 w-8 rounded-lg">
                     <AvatarImage
@@ -138,13 +139,16 @@ function AppSidebar() {
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent
-                className="w-56 rounded-xl"
+                className="ui-fade-in w-64 rounded-2xl border border-white/15 bg-[#0b1228] p-1.5 text-white shadow-2xl backdrop-blur-xl"
                 side="right"
                 align="end"
                 sideOffset={4}
               >
-                <DropdownMenuItem onClick={() => router.push("/profile")}>
-                  <Settings className="mr-2 size-4" />
+                <DropdownMenuItem
+                  onClick={() => router.push("/profile")}
+                  className="min-h-11 rounded-xl px-3 py-2 text-[15px] font-medium text-gray-100 focus:bg-white/10 focus:text-white whitespace-nowrap"
+                >
+                  <Settings className="mr-2 size-4 text-gray-300" />
                   Profile & Settings
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -153,9 +157,9 @@ function AppSidebar() {
                     await signOut();
                     router.push("/login");
                   }}
-                  className="text-red-400 focus:text-red-400"
+                  className="min-h-11 rounded-xl px-3 py-2 text-[15px] font-medium text-red-400 focus:bg-red-500/15 focus:text-red-300 whitespace-nowrap"
                 >
-                  <LogOut className="mr-2 size-4" />
+                  <LogOut className="mr-2 size-4 text-red-400" />
                   Log out
                 </DropdownMenuItem>
               </DropdownMenuContent>

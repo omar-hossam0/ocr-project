@@ -36,6 +36,40 @@ body {
   background: transparent;
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Lightweight motion helpers (transform + opacity only) */
+.ui-fade-in {
+  animation: uiFadeIn 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ui-hover-lift {
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease,
+    color 160ms ease;
+  will-change: transform;
+}
+
+.ui-hover-lift:hover {
+  transform: translateY(-1px);
 }
 
 /* ── Glassmorphism card utility ── */
@@ -84,6 +118,52 @@ body {
   -webkit-text-fill-color: transparent;
   background-clip: text;
   animation: gradientShift 5s ease infinite;
+}
+
+@keyframes toastZoomIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.86) translateY(-6px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.toast-zoom-in {
+  animation: toastZoomIn 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes uiFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .ui-fade-in,
+  .toast-zoom-in,
+  .animated-gradient-text {
+    animation: none !important;
+  }
+
+  .ui-hover-lift {
+    transition: none !important;
+  }
+
+  .ui-hover-lift:hover {
+    transform: none !important;
+  }
 }
 
 /* Custom scrollbar */

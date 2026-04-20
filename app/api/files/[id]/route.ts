@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFile, updateFile, FileData } from "@/app/lib/firestore";
+import { getFile, updateFile, deleteFile, FileData } from "@/app/lib/firestore";
 
 export async function GET(
   _request: NextRequest,
@@ -73,6 +73,53 @@ export async function PATCH(
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Failed to update file";
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: errorMessage,
+      },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  context: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { id } = await context.params;
+    if (!id) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "File id is required",
+        },
+        { status: 400 },
+      );
+    }
+
+    const existing = await getFile(id);
+    if (!existing) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "File not found",
+        },
+        { status: 404 },
+      );
+    }
+
+    await deleteFile(id);
+
+    return NextResponse.json({
+      success: true,
+      message: "File deleted successfully",
+    });
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Failed to delete file";
 
     return NextResponse.json(
       {
