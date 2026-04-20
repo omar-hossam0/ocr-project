@@ -17,11 +17,9 @@ import {
   ArrowRight,
 } from "lucide-react";
 import ScrollReveal from "@/components/ScrollReveal";
-import { useAuth } from "@/app/lib/auth-context";
 
 export default function LandingPage() {
   const router = useRouter();
-  const { user } = useAuth();
 
   return (
     <div className="min-h-screen" suppressHydrationWarning>
@@ -49,7 +47,7 @@ export default function LandingPage() {
           <ScrollReveal delay={0.2}>
             <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link
-                href={user ? "/dashboard" : "/login"}
+                href="/login"
                 className="inline-flex items-center gap-2 bg-sky-500 text-white px-7 py-3.5 rounded-full text-sm font-medium hover:bg-sky-400 transition"
               >
                 Start Free Trial <ArrowRight className="w-4 h-4" />

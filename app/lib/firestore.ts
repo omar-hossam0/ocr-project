@@ -66,10 +66,14 @@ export async function addFile(fileData: FileData) {
 
     console.log("✅ File added:", docRef.id);
 
-    // Update realtime DB stats
-    await updateFileStats("add", fileData.department);
-
     clearFilesCache();
+
+    // Keep metadata save fast; stats update runs best-effort in background.
+    void updateFileStats("add", fileData.department).catch((error: unknown) => {
+      const errorMessage =
+        error instanceof Error ? error.message : "Could not update stats";
+      console.warn("⚠️ Background stats update failed:", errorMessage);
+    });
 
     return docRef.id;
   } catch (error: unknown) {
@@ -804,12 +808,15 @@ export async function getAllTimeStats() {
 // ✅ USER PROFILE
 
 export interface UserProfile {
+  uid?: string;
+  email?: string;
   displayName: string;
   department: string;
   role: string;
   photoURL?: string;
   bio?: string;
   phone?: string;
+  lastLoginAt?: Date;
   updatedAt?: Date;
 }
 
@@ -915,4 +922,351 @@ export function uploadProfilePhotoResumable(
       },
     );
   });
+}
+
+// ✅ SETTINGS
+
+export interface StorageLocationSetting {
+  id?: string;
+  name: string;
+  type: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface DepartmentSetting {
+  id?: string;
+  name: string;
+  filesCount?: number;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface SettingsUser {
+  id?: string;
+  name: string;
+  email: string;
+  role: "Admin" | "Editor" | "Viewer";
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface SystemSettings {
+  fileExpirationDays: number;
+  notifyOnFileExpiration: boolean;
+  notifyOnFileCheckout: boolean;
+  dailySummaryEmail: boolean;
+  maxUploadSizeMb: number;
+  updatedAt?: Date;
+}
+
+function normalizeString(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+const DEFAULT_SETTINGS_LOCATIONS: Array<{ name: string; type: string }> = [
+  { name: "Cabinet A - Drawer 1", type: "Cabinet" },
+  { name: "Cabinet A - Drawer 2", type: "Cabinet" },
+  { name: "Cabinet A - Drawer 3", type: "Cabinet" },
+  { name: "Cabinet B - Drawer 1", type: "Cabinet" },
+  { name: "Office 1 - Shelf A", type: "Office" },
+  { name: "Office 2 - Shelf B", type: "Office" },
+  { name: "Storage Room 1", type: "Storage" },
+  { name: "Storage Room 2", type: "Storage" },
+];
+
+const DEFAULT_SETTINGS_DEPARTMENTS: string[] = [
+  "Legal",
+  "HR",
+  "Finance",
+  "Operations",
+  "IT",
+  "Administration",
+];
+
+async function seedDefaultLocationsIfEmpty() {
+  const collectionRef = collection(db, "settings_locations");
+  const existing = await getDocs(query(collectionRef, limit(1)));
+
+  if (!existing.empty) {
+    return;
+  }
+
+  const now = Timestamp.now();
+  await Promise.all(
+    DEFAULT_SETTINGS_LOCATIONS.map((item, index) =>
+      setDoc(doc(db, "settings_locations", `default-${index + 1}`), {
+        name: item.name,
+        type: item.type,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    ),
+  );
+}
+
+async function seedDefaultDepartmentsIfEmpty() {
+  const collectionRef = collection(db, "settings_departments");
+  const existing = await getDocs(query(collectionRef, limit(1)));
+
+  if (!existing.empty) {
+    return;
+  }
+
+  const now = Timestamp.now();
+  await Promise.all(
+    DEFAULT_SETTINGS_DEPARTMENTS.map((name, index) =>
+      setDoc(doc(db, "settings_departments", `default-${index + 1}`), {
+        name,
+        filesCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    ),
+  );
+}
+
+// Locations
+export async function getSettingsLocations() {
+  await seedDefaultLocationsIfEmpty();
+
+  const q = query(collection(db, "settings_locations"), orderBy("name", "asc"));
+  const snap = await getDocs(q);
+  return snap.docs.map((item) => ({
+    id: item.id,
+    ...item.data(),
+  })) as (StorageLocationSetting & { id: string })[];
+}
+
+export async function addSettingsLocation(
+  payload: Omit<StorageLocationSetting, "id" | "createdAt" | "updatedAt">,
+) {
+  const name = normalizeString(payload.name || "");
+  const type = normalizeString(payload.type || "");
+
+  if (!name || !type) {
+    throw new Error("Location name and type are required");
+  }
+
+  const refDoc = await addDoc(collection(db, "settings_locations"), {
+    name,
+    type,
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+  });
+
+  return refDoc.id;
+}
+
+export async function updateSettingsLocation(
+  id: string,
+  payload: Partial<StorageLocationSetting>,
+) {
+  const updates: Record<string, unknown> = {
+    updatedAt: Timestamp.now(),
+  };
+
+  if (typeof payload.name === "string") {
+    updates.name = normalizeString(payload.name);
+  }
+  if (typeof payload.type === "string") {
+    updates.type = normalizeString(payload.type);
+  }
+
+  await updateDoc(doc(db, "settings_locations", id), updates);
+}
+
+export async function deleteSettingsLocation(id: string) {
+  await deleteDoc(doc(db, "settings_locations", id));
+}
+
+// Departments
+export async function getSettingsDepartments() {
+  await seedDefaultDepartmentsIfEmpty();
+
+  const q = query(
+    collection(db, "settings_departments"),
+    orderBy("name", "asc"),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((item) => ({
+    id: item.id,
+    ...item.data(),
+  })) as (DepartmentSetting & { id: string })[];
+}
+
+export async function addSettingsDepartment(
+  payload: Omit<DepartmentSetting, "id" | "createdAt" | "updatedAt">,
+) {
+  const name = normalizeString(payload.name || "");
+  if (!name) {
+    throw new Error("Department name is required");
+  }
+
+  const refDoc = await addDoc(collection(db, "settings_departments"), {
+    name,
+    filesCount: Number(payload.filesCount || 0),
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+  });
+
+  return refDoc.id;
+}
+
+export async function updateSettingsDepartment(
+  id: string,
+  payload: Partial<DepartmentSetting>,
+) {
+  const updates: Record<string, unknown> = {
+    updatedAt: Timestamp.now(),
+  };
+
+  if (typeof payload.name === "string") {
+    updates.name = normalizeString(payload.name);
+  }
+  if (typeof payload.filesCount === "number") {
+    updates.filesCount = payload.filesCount;
+  }
+
+  await updateDoc(doc(db, "settings_departments", id), updates);
+}
+
+export async function deleteSettingsDepartment(id: string) {
+  await deleteDoc(doc(db, "settings_departments", id));
+}
+
+// Users in settings management
+export async function getSettingsUsers() {
+  const q = query(collection(db, "settings_users"), orderBy("name", "asc"));
+  const snap = await getDocs(q);
+  return snap.docs.map((item) => ({
+    id: item.id,
+    ...item.data(),
+  })) as (SettingsUser & { id: string })[];
+}
+
+export async function addSettingsUser(
+  payload: Omit<SettingsUser, "id" | "createdAt" | "updatedAt">,
+) {
+  const name = normalizeString(payload.name || "");
+  const email = normalizeString(payload.email || "").toLowerCase();
+  const role = payload.role;
+
+  if (!name || !email || !role) {
+    throw new Error("User name, email, and role are required");
+  }
+
+  const refDoc = await addDoc(collection(db, "settings_users"), {
+    name,
+    email,
+    role,
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+  });
+
+  return refDoc.id;
+}
+
+export async function updateSettingsUser(
+  id: string,
+  payload: Partial<SettingsUser>,
+) {
+  const updates: Record<string, unknown> = {
+    updatedAt: Timestamp.now(),
+  };
+
+  if (typeof payload.name === "string") {
+    updates.name = normalizeString(payload.name);
+  }
+  if (typeof payload.email === "string") {
+    updates.email = normalizeString(payload.email).toLowerCase();
+  }
+  if (payload.role) {
+    updates.role = payload.role;
+  }
+
+  await updateDoc(doc(db, "settings_users", id), updates);
+}
+
+export async function deleteSettingsUser(id: string) {
+  await deleteDoc(doc(db, "settings_users", id));
+}
+
+export type AccountSettingsUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: "Admin" | "Editor" | "Viewer";
+};
+
+export async function getSettingsUsersFromAccounts(): Promise<
+  AccountSettingsUser[]
+> {
+  const snap = await getDocs(collection(db, "users"));
+
+  const data = snap.docs.map((item) => {
+    const row = item.data() as Partial<UserProfile>;
+    const email = (row.email || "").trim().toLowerCase();
+    const displayName = (row.displayName || "").trim();
+    const fallbackName = email ? email.split("@")[0] : "User";
+    const rawRole = (row.role || "Viewer").trim();
+    const role =
+      rawRole === "Admin" || rawRole === "Editor" || rawRole === "Viewer"
+        ? rawRole
+        : "Viewer";
+
+    return {
+      id: item.id,
+      name: displayName || fallbackName,
+      email,
+      role,
+    } as AccountSettingsUser;
+  });
+
+  return data.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// System settings (single document)
+const SYSTEM_SETTINGS_DOC_ID = "global";
+
+const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
+  fileExpirationDays: 365,
+  notifyOnFileExpiration: true,
+  notifyOnFileCheckout: true,
+  dailySummaryEmail: false,
+  maxUploadSizeMb: 50,
+};
+
+export async function getSystemSettings(): Promise<SystemSettings> {
+  const refDoc = doc(db, "settings_system", SYSTEM_SETTINGS_DOC_ID);
+  const snap = await getDoc(refDoc);
+
+  if (!snap.exists()) {
+    await setDoc(refDoc, {
+      ...DEFAULT_SYSTEM_SETTINGS,
+      updatedAt: Timestamp.now(),
+    });
+    return DEFAULT_SYSTEM_SETTINGS;
+  }
+
+  const data = snap.data() as Partial<SystemSettings>;
+  return {
+    fileExpirationDays: Number(data.fileExpirationDays ?? 365),
+    notifyOnFileExpiration: Boolean(data.notifyOnFileExpiration ?? true),
+    notifyOnFileCheckout: Boolean(data.notifyOnFileCheckout ?? true),
+    dailySummaryEmail: Boolean(data.dailySummaryEmail ?? false),
+    maxUploadSizeMb: Number(data.maxUploadSizeMb ?? 50),
+  };
+}
+
+export async function updateSystemSettings(payload: Partial<SystemSettings>) {
+  const refDoc = doc(db, "settings_system", SYSTEM_SETTINGS_DOC_ID);
+  await setDoc(
+    refDoc,
+    {
+      ...payload,
+      updatedAt: Timestamp.now(),
+    },
+    { merge: true },
+  );
 }

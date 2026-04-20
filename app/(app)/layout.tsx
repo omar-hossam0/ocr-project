@@ -1,6 +1,7 @@
 "use client";
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { AnimatePresence, motion } from "motion/react";
 import { useAuth } from "@/app/lib/auth-context";
 import AppSidebar, {
   SidebarProvider,
@@ -20,6 +21,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       router.replace("/login");
     }
   }, [user, loading, router]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [pathname]);
 
   if (loading) {
     return (
@@ -49,7 +56,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </button>
           )}
         </header>
-        <main className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">{children}</main>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.main
+            key={pathname}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            className="w-full p-3 sm:p-6 lg:p-8 max-w-7xl mx-auto"
+          >
+            {children}
+          </motion.main>
+        </AnimatePresence>
       </SidebarInset>
     </SidebarProvider>
   );

@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
 
     const createdId = await withTimeout(
       addFile(filePayload),
-      20000,
+      45000,
       "Saving file metadata",
     );
 

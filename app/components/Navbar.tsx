@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { gsap } from "gsap";
 import { GoArrowUpRight } from "react-icons/go";
 import { FileText } from "lucide-react";
-import { useAuth } from "@/app/lib/auth-context";
 
 const NAV_ITEMS = [
   {
@@ -48,7 +47,6 @@ const NAV_ITEMS = [
 ];
 
 export default function Navbar() {
-  const { user } = useAuth();
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -152,11 +150,7 @@ export default function Navbar() {
   };
 
   const handleAuthAction = async () => {
-    // Keep the CTA consistent: send signed-in users to the app, guests to login
-    if (user) {
-      router.push("/dashboard");
-      return;
-    }
+    // Get Started should always open auth entry point first.
     router.push("/login");
   };
 
@@ -171,7 +165,7 @@ export default function Navbar() {
     event: React.MouseEvent<HTMLAnchorElement>,
     href: string,
   ) => {
-    if (!user && requiresAuth(href)) {
+    if (requiresAuth(href)) {
       event.preventDefault();
       closeMenu();
       router.push("/login");
@@ -182,7 +176,7 @@ export default function Navbar() {
   };
 
   return (
-    <div className="fixed left-1/2 -translate-x-1/2 w-[90%] max-w-[820px] z-50 top-[1.2em] md:top-[1.5em]">
+    <div className="fixed left-1/2 -translate-x-1/2 w-[94%] max-w-[820px] z-50 top-[1.2em] md:top-[1.5em]">
       <nav
         ref={navRef}
         className="block h-[60px] p-0 rounded-xl shadow-lg relative overflow-hidden will-change-[height] border border-white/10"
@@ -246,18 +240,29 @@ export default function Navbar() {
                 {item.label}
               </div>
               <div className="mt-auto flex flex-col gap-1">
-                {item.links.map((lnk) => (
-                  <Link
-                    key={lnk.label}
-                    href={lnk.href}
-                    aria-label={lnk.ariaLabel}
-                    onClick={(event) => handleNavLinkClick(event, lnk.href)}
-                    className="inline-flex items-center gap-1.5 text-[14px] md:text-[15px] text-white/80 hover:text-white transition-opacity hover:opacity-100 opacity-75"
-                  >
-                    <GoArrowUpRight className="shrink-0" aria-hidden="true" />
-                    {lnk.label}
-                  </Link>
-                ))}
+                {item.links.map((lnk) =>
+                  (() => {
+                    const resolvedHref = requiresAuth(lnk.href)
+                      ? "/login"
+                      : lnk.href;
+
+                    return (
+                      <Link
+                        key={lnk.label}
+                        href={resolvedHref}
+                        aria-label={lnk.ariaLabel}
+                        onClick={(event) => handleNavLinkClick(event, lnk.href)}
+                        className="inline-flex items-center gap-1.5 text-[14px] md:text-[15px] text-white/80 hover:text-white transition-opacity hover:opacity-100 opacity-75"
+                      >
+                        <GoArrowUpRight
+                          className="shrink-0"
+                          aria-hidden="true"
+                        />
+                        {lnk.label}
+                      </Link>
+                    );
+                  })(),
+                )}
               </div>
             </div>
           ))}

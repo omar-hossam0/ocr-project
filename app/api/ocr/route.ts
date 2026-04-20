@@ -58,7 +58,34 @@ function runPythonOcr(
 }
 
 export async function POST(request: NextRequest) {
-  const form = await request.formData();
+  const contentType = request.headers.get("content-type") || "";
+  if (
+    !contentType.includes("multipart/form-data") &&
+    !contentType.includes("application/x-www-form-urlencoded")
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          "Invalid Content-Type. Use multipart/form-data and include a 'file' field.",
+      },
+      { status: 415 },
+    );
+  }
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Failed to parse form data. Make sure request body is valid multipart form data.",
+      },
+      { status: 400 },
+    );
+  }
+
   const uploaded = form.get("file");
 
   if (!uploaded || !(uploaded instanceof File)) {
