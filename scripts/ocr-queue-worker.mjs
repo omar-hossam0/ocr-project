@@ -2,6 +2,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
 
 const logFilePath = path.join(process.cwd(), "ocr-worker.log");
 
@@ -101,6 +103,46 @@ function runPythonOcr(pythonPath, scriptPath, filePath, timeoutMs = 300000) {
   });
 }
 
+function resolveTimeoutMs(defaultValue) {
+  const raw = String(process.env.OCR_PROCESS_TIMEOUT_MS || "").trim();
+  const parsed = Number(raw);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return defaultValue;
+}
+
+async function downloadToFile(url, destPath, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error(`Could not download storage file (${response.status})`);
+    }
+
+    if (!response.body) {
+      const bytes = Buffer.from(await response.arrayBuffer());
+      await fs.writeFile(destPath, bytes);
+      return;
+    }
+
+    const nodeStream = Readable.fromWeb(response.body);
+    const handle = await fs.open(destPath, "w");
+    try {
+      await pipeline(nodeStream, handle.createWriteStream());
+    } finally {
+      await handle.close();
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function patchFile(baseUrl, fileId, updates) {
   await fetch(`${baseUrl}/api/files/${fileId}`, {
     method: "PATCH",
@@ -130,16 +172,13 @@ async function main() {
     `input${extensionFrom(fileType || "")}`,
   );
 
+  const downloadTimeoutMs = resolveTimeoutMs(180000);
+  const ocrTimeoutMs = resolveTimeoutMs(300000);
+
   try {
-    const response = await fetch(storageUrl);
-    if (!response.ok) {
-      throw new Error(`Could not download storage file (${response.status})`);
-    }
-
-    await logLine(`download-ok fileId=${fileId} bytes-start`);
-
-    const bytes = Buffer.from(await response.arrayBuffer());
-    await fs.writeFile(tempFilePath, bytes);
+    await logLine(`download-start fileId=${fileId}`);
+    await downloadToFile(storageUrl, tempFilePath, downloadTimeoutMs);
+    await logLine(`download-ok fileId=${fileId} path=${tempFilePath}`);
 
     const scriptPath = path.join(process.cwd(), "scripts", "ocr_runner.py");
     const attempts = [];
@@ -147,7 +186,12 @@ async function main() {
     let run = null;
 
     for (const pythonPath of resolvePythonCandidates()) {
-      const attempt = await runPythonOcr(pythonPath, scriptPath, tempFilePath);
+      const attempt = await runPythonOcr(
+        pythonPath,
+        scriptPath,
+        tempFilePath,
+        ocrTimeoutMs,
+      );
       attempts.push(attempt);
 
       const maybePayload = parseLastJsonLine(attempt.stdout);

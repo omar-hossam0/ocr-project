@@ -26,8 +26,31 @@ type FileStatus =
   | "checked_out"
   | "in_archive";
 const OCR_JOB_STORAGE_KEY = "ocrBackgroundFileId";
-const OCR_CLIENT_TIMEOUT_MS = 120000;
+const OCR_CLIENT_TIMEOUT_MS = 180000; // 180s for first-time lang download; subsequent runs ~10-20s
 const STORAGE_UPLOAD_TIMEOUT_MS = 180000;
+
+async function safeReadJson<T>(response: Response): Promise<{
+  ok: boolean;
+  status: number;
+  json: T | null;
+  rawText: string;
+}> {
+  const rawText = await response.text();
+  if (!rawText) {
+    return { ok: response.ok, status: response.status, json: null, rawText: "" };
+  }
+
+  try {
+    return {
+      ok: response.ok,
+      status: response.status,
+      json: JSON.parse(rawText) as T,
+      rawText,
+    };
+  } catch {
+    return { ok: response.ok, status: response.status, json: null, rawText };
+  }
+}
 
 async function withTimeout<T>(
   promise: Promise<T>,
@@ -335,8 +358,10 @@ export default function UploadPage() {
       });
 
       if (!response.ok) {
-        const payload = (await response.json()) as { error?: string };
-        throw new Error(payload.error || "Failed to update saved file");
+        const { json, rawText } = await safeReadJson<{ error?: string }>(response);
+        throw new Error(
+          json?.error || rawText || "Failed to update saved file",
+        );
       }
     },
     [],
@@ -360,27 +385,27 @@ export default function UploadPage() {
           "OCR processing",
         );
 
-        const ocrJson = (await ocrResponse.json()) as {
+        const { json: ocrJson, rawText } = await safeReadJson<{
           success?: boolean;
           data?: { text?: string; engine?: string; device?: string };
           error?: string;
-        };
+        }>(ocrResponse);
 
-        if (!ocrResponse.ok || !ocrJson.success) {
-          throw new Error(ocrJson.error || "Failed to run OCR");
+        if (!ocrResponse.ok || !ocrJson?.success) {
+          throw new Error(ocrJson?.error || rawText || "Failed to run OCR");
         }
 
-        const text = (ocrJson.data?.text || "").trim();
+        const text = (ocrJson?.data?.text || "").trim();
         await patchSavedFile(savedFileId, {
           status: "available",
           ocrText: text,
-          notes: `OCR complete (${ocrJson.data?.engine || "engine"} • ${ocrJson.data?.device || "cpu"})`,
+          notes: `OCR complete (${ocrJson?.data?.engine || "engine"} • ${ocrJson?.data?.device || "cpu"})`,
         });
 
         setBackgroundStatus("available");
         setOcrResult(text || "(No text detected by OCR)");
         setOcrEngineInfo(
-          `${ocrJson.data?.engine || "easyocr"} • ${ocrJson.data?.device || "cpu"}`,
+          `${ocrJson?.data?.engine || "easyocr"} • ${ocrJson?.data?.device || "cpu"}`,
         );
         if (typeof window !== "undefined") {
           localStorage.removeItem(OCR_JOB_STORAGE_KEY);
@@ -464,8 +489,13 @@ export default function UploadPage() {
       setError("");
 
       try {
-        // Start OCR in parallel with storage upload so OCR isn't blocked by slow uploads
-        const ocrPromise = (async () => {
+        // ── Step 1: Run OCR FIRST (fast with cached tesseract.js) ──
+        setOcrEngineInfo("running OCR model...");
+        let ocrText = "";
+        let ocrEngine = "";
+        let ocrDevice = "cpu";
+
+        try {
           const formData = new FormData();
           formData.append("file", targetFile);
           const ocrResponse = await withTimeout(
@@ -477,131 +507,79 @@ export default function UploadPage() {
             OCR_CLIENT_TIMEOUT_MS,
             "OCR processing",
           );
-          const ocrJson = (await ocrResponse.json()) as {
+          const { json: ocrJson, rawText } = await safeReadJson<{
             success?: boolean;
             data?: { text?: string; engine?: string; device?: string };
             error?: string;
-          };
-          if (!ocrResponse.ok || !ocrJson.success) {
-            throw new Error(ocrJson.error || "Failed to run OCR");
+          }>(ocrResponse);
+          if (ocrResponse.ok && ocrJson?.success) {
+            ocrText = (ocrJson?.data?.text || "").trim();
+            ocrEngine = ocrJson?.data?.engine || "tesseract.js";
+            ocrDevice = ocrJson?.data?.device || "cpu";
+          } else {
+            console.warn("OCR returned error:", ocrJson?.error || rawText);
           }
-          return ocrJson;
-        })();
+        } catch (ocrErr) {
+          const ocrErrMsg = ocrErr instanceof Error ? ocrErr.message : "OCR failed";
+          console.warn("OCR failed:", ocrErrMsg);
+          setOcrEngineInfo("OCR unavailable");
+        }
 
-        setOcrEngineInfo("uploading file...");
-        let uploadedStorage: { url: string; path: string } | null = null;
+        // Show OCR result immediately and STOP processing state for UI
+        if (ocrText) {
+          setOcrResult(ocrText);
+          setOcrEngineInfo(`${ocrEngine} • ${ocrDevice}`);
+          setProcessing(false); // Stop the spinner immediately
+          showToast("OCR completed successfully!", "success");
+        } else {
+          setOcrResult("(No text detected by OCR)");
+          setOcrEngineInfo(ocrEngine ? `${ocrEngine} • no text found` : "OCR unavailable");
+          setProcessing(false);
+        }
+
+        // ── Step 2: Upload to storage + save metadata (background) ──
+        let storageUrl: string | undefined;
+
         try {
-          uploadedStorage = await uploadFileToStorage(
+          const uploadResult = await uploadFileToStorage(
             targetFile,
             user.uid,
             targetFile.name,
             {
               timeoutMs: STORAGE_UPLOAD_TIMEOUT_MS,
               onProgress: (progress) => {
-                if (progress > 0) {
-                  setOcrEngineInfo(`uploading file... ${progress}%`);
-                } else {
-                  setOcrEngineInfo("uploading file...");
+                if (progress > 0 && progress < 100) {
+                  setOcrEngineInfo(`${ocrEngine || "done"} • uploading ${progress}%`);
                 }
               },
             },
           );
+          storageUrl = uploadResult.url;
         } catch (storageErr) {
-          console.warn("Storage upload failed, continuing with OCR:", storageErr);
-          setOcrEngineInfo("storage upload failed, waiting for OCR...");
+          console.warn("Storage upload failed (file still saved via metadata):", storageErr);
         }
 
-        setOcrEngineInfo("saving metadata...");
-        const savedFileId = await persistFileRecord(targetFile, "", {
-          status: "processing",
-          storageUrl: uploadedStorage?.url,
-          notesOverride: "OCR pending",
+        // Save file metadata to Firestore
+        const savedFileId = await persistFileRecord(targetFile, ocrText, {
+          status: "available",
+          storageUrl,
+          notesOverride: ocrText
+            ? `OCR complete (${ocrEngine} • ${ocrDevice})`
+            : "No OCR text extracted",
         });
 
         if (savedFileId) {
           setBackgroundFileId(savedFileId);
-          setBackgroundStatus("processing");
+          setBackgroundStatus("available");
           if (typeof window !== "undefined") {
-            localStorage.setItem(OCR_JOB_STORAGE_KEY, savedFileId);
+            localStorage.removeItem(OCR_JOB_STORAGE_KEY);
           }
-
-          setOcrEngineInfo("running OCR...");
-          showToast("File saved. Running OCR...", "success");
-
-          // Wait for OCR result (it was already started in parallel)
-          try {
-            const ocrJson = await ocrPromise;
-            const text = (ocrJson.data?.text || "").trim();
-            await patchSavedFile(savedFileId, {
-              status: "available",
-              ocrText: text,
-              notes: `OCR complete (${ocrJson.data?.engine || "engine"} • ${ocrJson.data?.device || "cpu"})`,
-            });
-            setBackgroundStatus("available");
-            setOcrResult(text || "(No text detected by OCR)");
-            setOcrEngineInfo(
-              `${ocrJson.data?.engine || "easyocr"} • ${ocrJson.data?.device || "cpu"}`,
-            );
-            if (typeof window !== "undefined") {
-              localStorage.removeItem(OCR_JOB_STORAGE_KEY);
-            }
-            showToast("OCR completed successfully!", "success");
-          } catch (ocrErr) {
-            const ocrErrMsg = ocrErr instanceof Error ? ocrErr.message : "OCR failed";
-            await patchSavedFile(savedFileId, {
-              status: "failed",
-              notes: `OCR failed: ${ocrErrMsg}`,
-            }).catch(() => undefined);
-            setBackgroundStatus("failed");
-            setOcrEngineInfo("OCR failed");
-            setError(`File saved but OCR failed: ${ocrErrMsg}`);
-          }
+          showToast("File saved successfully!", "success");
         }
       } catch (err) {
         const errorMessage =
           err instanceof Error ? err.message : "Error processing file";
-
-        const isStorageFailure =
-          /Storage upload failed|Storage upload stalled|storage\/|download URL fetch failed/i.test(
-            errorMessage,
-          );
-
-        if (isStorageFailure) {
-          setError(
-            `${errorMessage}. Check Firebase Storage rules and bucket configuration.`,
-          );
-          setOcrEngineInfo("upload failed");
-          showToast(
-            "File upload failed. Verify Firebase Storage rules/permissions.",
-            "error",
-          );
-          return;
-        }
-
-        const isOcrInfraUnavailable =
-          /Python executable not found|OCR service is not configured|Remote OCR failed|Set OCR_SERVICE_URL|OCR processing timed out|OCR JS fallback failed|OCR failed|aborted/i.test(
-            errorMessage,
-          );
-
-        if (isOcrInfraUnavailable) {
-          setOcrEngineInfo("OCR unavailable");
-          const savedFileId = await persistFileRecord(targetFile, "");
-          if (savedFileId) {
-            setBackgroundFileId(savedFileId);
-            setBackgroundStatus("failed");
-            setError(
-              "OCR is unavailable or slow right now. File metadata was saved without extracted text.",
-            );
-            showToast(
-              "File saved successfully. OCR was skipped due to timeout/unavailable service.",
-              "success",
-            );
-            return;
-          }
-        }
-
         setError(errorMessage);
-        setOcrEngineInfo("queue failed");
         showToast(errorMessage, "error");
       } finally {
         setProcessing(false);
@@ -611,8 +589,6 @@ export default function UploadPage() {
       user,
       persistFileRecord,
       showToast,
-      runBackgroundOcr,
-      pollBackgroundResult,
     ],
   );
 

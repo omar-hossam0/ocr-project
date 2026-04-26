@@ -39,8 +39,58 @@ const IMAGE_EXTENSIONS = new Set([
 
 const JS_FALLBACK_DEFAULT_LANG = "eng+ara";
 
+// ── Cached tesseract.js worker (created once, reused across requests) ──
+type TessWorker = {
+  recognize: (image: Buffer) => Promise<{ data?: { text?: string } }>;
+  terminate: () => Promise<unknown>;
+};
+
+let _cachedWorker: TessWorker | null = null;
+let _workerLang = "";
+let _workerCreating: Promise<TessWorker> | null = null;
+
+async function getOrCreateTessWorker(lang: string): Promise<TessWorker> {
+  // Return cached worker if same language
+  if (_cachedWorker && _workerLang === lang) {
+    return _cachedWorker;
+  }
+
+  // If another request is already creating the worker, wait for it
+  if (_workerCreating) {
+    return _workerCreating;
+  }
+
+  // Terminate old worker if language changed
+  if (_cachedWorker) {
+    try { await _cachedWorker.terminate(); } catch { /* ignore */ }
+    _cachedWorker = null;
+  }
+
+  _workerCreating = (async () => {
+    console.log(`🔄 Creating tesseract.js worker (lang: ${lang})...`);
+    const startMs = Date.now();
+
+    const tesseract = (await import("tesseract.js")) as {
+      createWorker: (langs?: string) => Promise<TessWorker>;
+    };
+
+    const worker = await tesseract.createWorker(lang);
+    _cachedWorker = worker;
+    _workerLang = lang;
+    console.log(`✅ tesseract.js worker ready in ${Date.now() - startMs}ms`);
+    return worker;
+  })();
+
+  try {
+    const worker = await _workerCreating;
+    return worker;
+  } finally {
+    _workerCreating = null;
+  }
+}
+
 function normalizeRemoteEndpoint() {
-  const base = (process.env.OCR_SERVICE_URL || "").trim();
+  const base = (process.env.OCR_SERVICE_URL || "http://127.0.0.1:8088").trim();
   if (!base) return "";
 
   const endpoint = (process.env.OCR_SERVICE_ENDPOINT || "/ocr").trim();
@@ -222,41 +272,24 @@ async function runJsOcrFallback(uploaded: File, fileExt: string) {
     (process.env.OCR_JS_LANGS || JS_FALLBACK_DEFAULT_LANG).trim() ||
     JS_FALLBACK_DEFAULT_LANG;
 
-  let worker: {
-    recognize: (image: Buffer) => Promise<{ data?: { text?: string } }>;
-    terminate: () => Promise<unknown>;
-  } | null = null;
+  const startMs = Date.now();
+  console.log(`🔍 Running tesseract.js OCR (lang: ${tesseractLang})...`);
 
-  try {
-    const tesseract = (await import("tesseract.js")) as {
-      createWorker: (langs?: string) => Promise<{
-        recognize: (image: Buffer) => Promise<{ data?: { text?: string } }>;
-        terminate: () => Promise<unknown>;
-      }>;
-    };
+  const worker = await getOrCreateTessWorker(tesseractLang);
+  const imageBytes = Buffer.from(await uploaded.arrayBuffer());
+  const result = await worker.recognize(imageBytes);
+  const text = String(result?.data?.text || "").trim();
 
-    worker = await tesseract.createWorker(tesseractLang);
-    const imageBytes = Buffer.from(await uploaded.arrayBuffer());
-    const result = await worker.recognize(imageBytes);
-    const text = String(result?.data?.text || "").trim();
+  console.log(`✅ tesseract.js OCR completed in ${Date.now() - startMs}ms (${text.length} chars)`);
 
-    return {
-      success: true,
-      engine: "tesseract.js",
-      device: "cpu",
-      text,
-      pages: [text],
-      transport: "js_fallback",
-    };
-  } finally {
-    if (worker) {
-      try {
-        await worker.terminate();
-      } catch {
-        // Ignore cleanup failures.
-      }
-    }
-  }
+  return {
+    success: true,
+    engine: "tesseract.js",
+    device: "cpu",
+    text,
+    pages: [text],
+    transport: "js_fallback",
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -302,7 +335,7 @@ export async function POST(request: NextRequest) {
   }
 
   const fileExt = path.extname(uploaded.name || "").toLowerCase() || ".bin";
-  const defaultTimeoutMs = process.env.VERCEL ? 45000 : 180000;
+  const defaultTimeoutMs = process.env.VERCEL ? 45000 : 300000;
   const timeoutMs = Number(
     process.env.OCR_PROCESS_TIMEOUT_MS || defaultTimeoutMs,
   );
@@ -316,47 +349,14 @@ export async function POST(request: NextRequest) {
     forceJsFallback ||
     (process.env.OCR_JS_FALLBACK || jsFallbackDefault).trim() !== "0";
 
+  const isImageFile = IMAGE_EXTENSIONS.has(fileExt);
+
   try {
-    if (!remoteEndpoint && !localFallbackEnabled) {
-      if (jsFallbackEnabled) {
-        try {
-          const jsPayload = await runJsOcrFallback(uploaded, fileExt);
-          if (jsPayload) {
-            return NextResponse.json({
-              success: true,
-              data: jsPayload,
-              timestamp: new Date().toISOString(),
-            });
-          }
-        } catch (jsError: unknown) {
-          const errorMessage =
-            jsError instanceof Error
-              ? jsError.message
-              : "JS OCR fallback failed";
-          return NextResponse.json(
-            {
-              success: false,
-              error: `OCR JS fallback failed: ${errorMessage}`,
-              hint: "Set OCR_SERVICE_URL for AWS OCR service, or upload an image file supported by JS fallback.",
-              timestamp: new Date().toISOString(),
-            },
-            { status: 503 },
-          );
-        }
-      }
+    // remoteEndpoint is used for status/logging
+    const remoteEndpoint = normalizeRemoteEndpoint();
 
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "OCR service is not configured in this deployment. Set OCR_SERVICE_URL (and optional OCR_SERVICE_ENDPOINT) in environment variables.",
-          hint: "For Vercel production, keep OCR_LOCAL_FALLBACK=0 and route OCR to your AWS OCR service.",
-          timestamp: new Date().toISOString(),
-        },
-        { status: 503 },
-      );
-    }
-
+    // ── 1. Remote OCR service (highest priority - now points to local FastAPI service) ──
+    // This is much faster as the model stays loaded in memory.
     const remoteResult = await runRemoteOcr(uploaded, timeoutMs);
     if (remoteResult?.ok) {
       return NextResponse.json({
@@ -369,157 +369,152 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    if (remoteResult && !localFallbackEnabled) {
-      if (jsFallbackEnabled) {
-        try {
-          const jsPayload = await runJsOcrFallback(uploaded, fileExt);
-          if (jsPayload) {
-            return NextResponse.json({
-              success: true,
-              data: jsPayload,
-              timestamp: new Date().toISOString(),
-            });
-          }
-        } catch {
-          // Keep remote failure response below when JS fallback also fails.
-        }
-      }
-
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Remote OCR failed: ${remoteResult.error}`,
-          endpoint: remoteResult.endpoint,
-          details: remoteResult.details,
-          hint: "Set OCR_SERVICE_URL to a reachable OCR service or enable OCR_LOCAL_FALLBACK=1.",
-          timestamp: new Date().toISOString(),
-        },
-        { status: 502 },
-      );
-    }
-
-    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ocr-upload-"));
-    const tempFilePath = path.join(tempDir, `input${fileExt}`);
-
-    try {
-      const bytes = Buffer.from(await uploaded.arrayBuffer());
-      await fs.writeFile(tempFilePath, bytes);
-
-      const scriptPath = path.join(process.cwd(), "scripts", "ocr_runner.py");
-      if (!existsSync(scriptPath)) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: `OCR script not found at ${scriptPath}`,
-          },
-          { status: 500 },
-        );
-      }
-
-      const candidates = resolvePythonCandidates();
-      const attempts: Array<{
-        command: string;
-        code: number | null;
-        timedOut: boolean;
-        spawnError?: string;
-        stderr: string;
-        payloadError?: string;
-      }> = [];
-
-      for (const candidate of candidates) {
-        const result = await runPythonOcr(
-          candidate,
-          scriptPath,
-          tempFilePath,
-          timeoutMs,
-        );
-
-        const payload = parseLastJsonLine(result.stdout);
-        const payloadError =
-          payload && typeof payload.error === "string" ? payload.error : "";
-
-        attempts.push({
-          command: result.command,
-          code: result.code,
-          timedOut: result.timedOut,
-          spawnError: result.spawnError,
-          stderr: shorten(result.stderr),
-          payloadError: payloadError || undefined,
-        });
-
-        if (result.code === 0 && payload && !payload.error) {
+    // ── 2. For IMAGE files: try tesseract.js FIRST if remote fails ──
+    if (isImageFile && jsFallbackEnabled) {
+      try {
+        const jsPayload = await runJsOcrFallback(uploaded, fileExt);
+        if (jsPayload) {
           return NextResponse.json({
             success: true,
-            data: payload,
+            data: jsPayload,
             timestamp: new Date().toISOString(),
           });
         }
+      } catch (jsError: unknown) {
+        const jsErrMsg =
+          jsError instanceof Error ? jsError.message : "JS OCR failed";
+        console.warn("⚠️ tesseract.js failed, will try Python fallback:", jsErrMsg);
+        // Continue to Python fallback below
       }
+    }
 
-      const firstUsefulAttempt = attempts.find((item) =>
-        Boolean(item.payloadError || item.stderr || item.spawnError),
-      );
-      const rawError =
-        firstUsefulAttempt?.payloadError ||
-        firstUsefulAttempt?.stderr ||
-        firstUsefulAttempt?.spawnError ||
-        "OCR failed";
+    // ── 3. Python easyocr fallback (handles PDFs + images) ──
+    if (localFallbackEnabled) {
+      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ocr-upload-"));
+      const tempFilePath = path.join(tempDir, `input${fileExt}`);
 
-      const missingModuleMatch = rawError.match(
-        /No module named ['\"]([^'\"]+)['\"]/,
-      );
-      const isPythonMissing = attempts.every(
-        (item) =>
-          (item.spawnError || "").includes("ENOENT") ||
-          (item.stderr || "").includes("not recognized") ||
-          (item.stderr || "").includes("No such file or directory"),
-      );
+      try {
+        const bytes = Buffer.from(await uploaded.arrayBuffer());
+        await fs.writeFile(tempFilePath, bytes);
 
-      let errorMessage = `OCR failed: ${rawError}`;
-      if (isPythonMissing) {
-        if (jsFallbackEnabled) {
-          try {
-            const jsPayload = await runJsOcrFallback(uploaded, fileExt);
-            if (jsPayload) {
+        const scriptPath = path.join(process.cwd(), "scripts", "ocr_runner.py");
+        if (!existsSync(scriptPath)) {
+          // If no Python script and it's an image, we already tried JS above
+          if (!isImageFile || !jsFallbackEnabled) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: `OCR script not found at ${scriptPath}`,
+              },
+              { status: 500 },
+            );
+          }
+        } else {
+          const candidates = resolvePythonCandidates();
+          const attempts: Array<{
+            command: string;
+            code: number | null;
+            timedOut: boolean;
+            spawnError?: string;
+            stderr: string;
+            payloadError?: string;
+          }> = [];
+
+          for (const candidate of candidates) {
+            const result = await runPythonOcr(
+              candidate,
+              scriptPath,
+              tempFilePath,
+              timeoutMs,
+            );
+
+            const payload = parseLastJsonLine(result.stdout);
+            const payloadError =
+              payload && typeof payload.error === "string" ? payload.error : "";
+
+            attempts.push({
+              command: result.command,
+              code: result.code,
+              timedOut: result.timedOut,
+              spawnError: result.spawnError,
+              stderr: shorten(result.stderr),
+              payloadError: payloadError || undefined,
+            });
+
+            if (result.code === 0 && payload && !payload.error) {
               return NextResponse.json({
                 success: true,
-                data: jsPayload,
+                data: payload,
                 timestamp: new Date().toISOString(),
               });
             }
-          } catch {
-            // Keep original python-missing response below.
           }
+
+          // Python failed — build informative error
+          const firstUsefulAttempt = attempts.find((item) =>
+            Boolean(item.payloadError || item.stderr || item.spawnError),
+          );
+          const rawError =
+            firstUsefulAttempt?.payloadError ||
+            firstUsefulAttempt?.stderr ||
+            firstUsefulAttempt?.spawnError ||
+            "OCR failed";
+
+          const missingModuleMatch = rawError.match(
+            /No module named ['"]([^'"]+)['"]/,
+          );
+          const isPythonMissing = attempts.every(
+            (item) =>
+              (item.spawnError || "").includes("ENOENT") ||
+              (item.stderr || "").includes("not recognized") ||
+              (item.stderr || "").includes("No such file or directory"),
+          );
+
+          let errorMessage = `OCR failed: ${rawError}`;
+          if (isPythonMissing) {
+            errorMessage =
+              "Python executable not found. Set OCR_PYTHON_PATH or install Python in the server runtime.";
+          } else if (missingModuleMatch?.[1]) {
+            errorMessage = `Missing Python package '${missingModuleMatch[1]}'. Install OCR dependencies in the deployment environment.`;
+          }
+
+          return NextResponse.json(
+            {
+              success: false,
+              error: errorMessage,
+              remoteOcr:
+                remoteResult && !remoteResult.ok
+                  ? {
+                      endpoint: remoteResult.endpoint,
+                      error: remoteResult.error,
+                    }
+                  : undefined,
+              attempts,
+              hint: "Install easyocr, opencv-python-headless, pypdfium2, torch in .venv.",
+              timestamp: new Date().toISOString(),
+            },
+            { status: 500 },
+          );
         }
-
-        errorMessage =
-          "Python executable not found. Set OCR_PYTHON_PATH or install Python in the server runtime.";
-      } else if (missingModuleMatch?.[1]) {
-        errorMessage = `Missing Python package '${missingModuleMatch[1]}'. Install OCR dependencies in the deployment environment.`;
+      } finally {
+        await fs.rm(tempDir, { recursive: true, force: true });
       }
-
-      return NextResponse.json(
-        {
-          success: false,
-          error: errorMessage,
-          remoteOcr:
-            remoteResult && !remoteResult.ok
-              ? {
-                  endpoint: remoteResult.endpoint,
-                  error: remoteResult.error,
-                }
-              : undefined,
-          attempts,
-          hint: "If you deploy on Linux, use .venv/bin/python or set OCR_PYTHON_PATH. Install easyocr, opencv-python-headless, pypdfium2, torch.",
-          timestamp: new Date().toISOString(),
-        },
-        {
-          status: 500,
-        },
-      );
-    } finally {
-      await fs.rm(tempDir, { recursive: true, force: true });
     }
+
+    // ── 4. Nothing worked ──
+    const errorDetail = remoteResult && !remoteResult.ok
+      ? `Remote: ${remoteResult.error}. `
+      : "";
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: `${errorDetail}No OCR engine available for this file type (${fileExt}).`,
+        hint: "For images, tesseract.js is used. For PDFs, Python easyocr is required. Set OCR_SERVICE_URL for a remote OCR service.",
+        timestamp: new Date().toISOString(),
+      },
+      { status: 503 },
+    );
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Unexpected OCR API error";
