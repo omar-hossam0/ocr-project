@@ -148,7 +148,9 @@ export default function BrandLogo({
 
       {showText && (
         <div className="grid min-w-0 leading-tight">
-          <span className={`truncate font-semibold tracking-tight text-white ${styles.brand}`}>
+          <span
+            className={`truncate font-semibold tracking-tight text-white ${styles.brand}`}
+          >
             DocuMind AI
           </span>
           {showSubtitle && (
