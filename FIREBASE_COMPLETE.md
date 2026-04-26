@@ -7,7 +7,7 @@
 ```
 Project ID: ocr-project-f91fc
 Auth Domain: ocr-project-f91fc.firebaseapp.com
-Storage Bucket: ocr-project-f91fc.firebasestorage.app
+Storage Bucket: ocr-project-f91fc.appspot.com (or NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET)
 Realtime DB: ocr-project-f91fc-default-rtdb.firebaseio.com
 ```
 
