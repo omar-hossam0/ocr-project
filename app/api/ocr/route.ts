@@ -64,7 +64,9 @@ async function runRemoteOcr(
     let parsed: Record<string, unknown> | null = null;
 
     try {
-      parsed = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : null;
+      parsed = rawText
+        ? (JSON.parse(rawText) as Record<string, unknown>)
+        : null;
     } catch {
       parsed = null;
     }
@@ -75,9 +77,7 @@ async function runRemoteOcr(
         ? (parsed.detail as Record<string, unknown>)
         : null;
     const remoteError =
-      (parsed?.error as string) ||
-      (parsedDetail?.error as string) ||
-      "";
+      (parsed?.error as string) || (parsedDetail?.error as string) || "";
     const remotePayload =
       parsed && parsed.data && typeof parsed.data === "object"
         ? (parsed.data as Record<string, unknown>)
@@ -86,7 +86,9 @@ async function runRemoteOcr(
     if (!response.ok || !remoteSuccess || !remotePayload) {
       return {
         ok: false,
-        error: remoteError || `Remote OCR request failed with status ${response.status}`,
+        error:
+          remoteError ||
+          `Remote OCR request failed with status ${response.status}`,
         endpoint,
         status: response.status,
         details: parsed || rawText,
