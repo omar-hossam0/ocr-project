@@ -303,7 +303,9 @@ export async function POST(request: NextRequest) {
 
   const fileExt = path.extname(uploaded.name || "").toLowerCase() || ".bin";
   const defaultTimeoutMs = process.env.VERCEL ? 45000 : 180000;
-  const timeoutMs = Number(process.env.OCR_PROCESS_TIMEOUT_MS || defaultTimeoutMs);
+  const timeoutMs = Number(
+    process.env.OCR_PROCESS_TIMEOUT_MS || defaultTimeoutMs,
+  );
   const remoteEndpoint = normalizeRemoteEndpoint();
   const localFallbackDefault = process.env.VERCEL ? "0" : "1";
   const localFallbackEnabled =
