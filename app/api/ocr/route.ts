@@ -339,24 +339,32 @@ export async function POST(request: NextRequest) {
   const timeoutMs = Number(
     process.env.OCR_PROCESS_TIMEOUT_MS || defaultTimeoutMs,
   );
-  const remoteEndpoint = normalizeRemoteEndpoint();
-  const localFallbackDefault = process.env.VERCEL ? "0" : "1";
-  const localFallbackEnabled =
-    (process.env.OCR_LOCAL_FALLBACK || localFallbackDefault).trim() !== "0";
-  const jsFallbackDefault = process.env.VERCEL ? "0" : "1";
-  const forceJsFallback = request.headers.get("x-ocr-js-fallback") === "1";
-  const jsFallbackEnabled =
-    forceJsFallback ||
-    (process.env.OCR_JS_FALLBACK || jsFallbackDefault).trim() !== "0";
 
+  const localFallbackEnabled = !process.env.VERCEL || process.env.OCR_LOCAL_FALLBACK === "1";
+  const jsFallbackEnabled = (process.env.OCR_JS_FALLBACK || "1") !== "0";
   const isImageFile = IMAGE_EXTENSIONS.has(fileExt);
 
   try {
-    // remoteEndpoint is used for status/logging
-    const remoteEndpoint = normalizeRemoteEndpoint();
+    // ── 1. For IMAGE files on Vercel: try tesseract.js FIRST (reliable in serverless) ──
+    if (isImageFile && jsFallbackEnabled) {
+      try {
+        const jsPayload = await runJsOcrFallback(uploaded, fileExt);
+        if (jsPayload && jsPayload.text) {
+          return NextResponse.json({
+            success: true,
+            data: {
+              ...jsPayload,
+              transport: "tesseract_js_vercel",
+            },
+            timestamp: new Date().toISOString(),
+          });
+        }
+      } catch (jsError: unknown) {
+        console.warn("⚠️ tesseract.js failed on Vercel:", jsError);
+      }
+    }
 
-    // ── 1. Remote OCR service (highest priority - now points to local FastAPI service) ──
-    // This is much faster as the model stays loaded in memory.
+    // ── 2. Remote OCR service (highest priority if configured and not on Vercel) ──
     const remoteResult = await runRemoteOcr(uploaded, timeoutMs);
     if (remoteResult?.ok) {
       return NextResponse.json({
