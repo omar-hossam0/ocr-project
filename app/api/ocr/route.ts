@@ -37,7 +37,7 @@ const IMAGE_EXTENSIONS = new Set([
   ".webp",
 ]);
 
-const JS_FALLBACK_DEFAULT_LANG = "eng+ara";
+const JS_FALLBACK_DEFAULT_LANG = "ara+eng";
 
 // ── Cached tesseract.js worker (created once, reused across requests) ──
 type TessWorker = {
@@ -67,18 +67,33 @@ async function getOrCreateTessWorker(lang: string): Promise<TessWorker> {
   }
 
   _workerCreating = (async () => {
-    console.log(`🔄 Creating tesseract.js worker (lang: ${lang})...`);
+    console.log(`🔄 [OCR] Creating tesseract.js worker (lang: ${lang})...`);
     const startMs = Date.now();
 
-    const tesseract = (await import("tesseract.js")) as {
-      createWorker: (langs?: string) => Promise<TessWorker>;
-    };
+    const Tesseract = await import("tesseract.js");
 
-    const worker = await tesseract.createWorker(lang);
-    _cachedWorker = worker;
+    // @ts-expect-error - Tesseract.js types can be tricky between versions
+    const worker = await Tesseract.createWorker(lang, 1, {
+      logger: (m: { status: string; progress: number }) => console.log(`🔍 [Tesseract Progress] ${m.status}: ${Math.round(m.progress * 100)}%`),
+      cachePath: path.join(os.tmpdir(), 'tess-data'),
+      gzip: false,
+      errorHandler: (err: Error) => console.error("❌ [Tesseract Worker Error]", err),
+      // Force Node.js to use the local worker/core instead of trying to fetch from CDN if possible
+      // though tesseract.js usually handles this, sometimes Vercel needs explicit paths.
+    });
+
+    // @ts-expect-error - Tesseract.js types can be tricky between versions
+    if (typeof worker.setParameters === 'function') {
+      // @ts-expect-error - Tesseract.js types can be tricky between versions
+      await worker.setParameters({
+        tessedit_pageseg_mode: '3', // PSM 3: Fully automatic page segmentation, but no OSD.
+      });
+    }
+
+    _cachedWorker = worker as unknown as TessWorker;
     _workerLang = lang;
-    console.log(`✅ tesseract.js worker ready in ${Date.now() - startMs}ms`);
-    return worker;
+    console.log(`✅ [OCR] tesseract.js worker ready in ${Date.now() - startMs}ms`);
+    return _cachedWorker;
   })();
 
   try {
@@ -90,7 +105,7 @@ async function getOrCreateTessWorker(lang: string): Promise<TessWorker> {
 }
 
 function normalizeRemoteEndpoint() {
-  const base = (process.env.OCR_SERVICE_URL || "http://127.0.0.1:8088").trim();
+  const base = (process.env.OCR_SERVICE_URL || "").trim();
   if (!base) return "";
 
   const endpoint = (process.env.OCR_SERVICE_ENDPOINT || "/ocr").trim();
@@ -273,23 +288,34 @@ async function runJsOcrFallback(uploaded: File, fileExt: string) {
     JS_FALLBACK_DEFAULT_LANG;
 
   const startMs = Date.now();
-  console.log(`🔍 Running tesseract.js OCR (lang: ${tesseractLang})...`);
+  console.log(`🔍 [OCR] Starting tesseract.js (lang: ${tesseractLang}, file: ${uploaded.name})`);
 
-  const worker = await getOrCreateTessWorker(tesseractLang);
-  const imageBytes = Buffer.from(await uploaded.arrayBuffer());
-  const result = await worker.recognize(imageBytes);
-  const text = String(result?.data?.text || "").trim();
+  try {
+    const worker = await getOrCreateTessWorker(tesseractLang);
+    const arrayBuffer = await uploaded.arrayBuffer();
+    if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+      throw new Error("Empty file buffer");
+    }
+    const imageBytes = Buffer.from(arrayBuffer);
+    
+    console.log(`🔍 [OCR] Buffer created (${imageBytes.length} bytes), running recognize...`);
+    const result = await worker.recognize(imageBytes);
+    const text = String(result?.data?.text || "").trim();
 
-  console.log(`✅ tesseract.js OCR completed in ${Date.now() - startMs}ms (${text.length} chars)`);
+    console.log(`✅ [OCR] tesseract.js completed in ${Date.now() - startMs}ms (${text.length} chars)`);
 
-  return {
-    success: true,
-    engine: "tesseract.js",
-    device: "cpu",
-    text,
-    pages: [text],
-    transport: "js_fallback",
-  };
+    return {
+      success: true,
+      engine: "tesseract.js",
+      device: "cpu",
+      text,
+      pages: [text],
+      transport: "js_fallback",
+    };
+  } catch (err) {
+    console.error(`❌ [OCR] tesseract.js core failure:`, err);
+    throw err;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -358,9 +384,12 @@ export async function POST(request: NextRequest) {
             },
             timestamp: new Date().toISOString(),
           });
+        } else {
+           console.warn("⚠️ [OCR] tesseract.js returned empty text");
         }
       } catch (jsError: unknown) {
-        console.warn("⚠️ tesseract.js failed on Vercel:", jsError);
+        console.error("❌ [OCR] tesseract.js failed on Vercel:", jsError);
+        // Fall through to remote/local if possible
       }
     }
 

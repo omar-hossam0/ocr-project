@@ -19,6 +19,14 @@ import { useToast } from "@/components/ToastProvider";
 import OcrSearchableText from "@/components/OcrSearchableText";
 import { uploadFileToStorage } from "@/app/lib/firestore";
 
+type ClientTessWorker = {
+  recognize: (image: File | Blob) => Promise<{ data?: { text?: string } }>;
+  terminate: () => Promise<unknown>;
+};
+
+let _clientTessWorker: ClientTessWorker | null = null;
+let _clientTessWorkerCreating: Promise<ClientTessWorker> | null = null;
+
 type FileStatus =
   | "available"
   | "processing"
@@ -129,6 +137,35 @@ export default function UploadPage() {
       URL.revokeObjectURL(url);
     }, 1500);
   }, []);
+
+  const runClientOcrFallback = useCallback(
+    async (targetFile: File) => {
+      if (typeof window === "undefined") return "";
+
+      if (_clientTessWorkerCreating) {
+        _clientTessWorker = await _clientTessWorkerCreating;
+      }
+
+      if (!_clientTessWorker) {
+        _clientTessWorkerCreating = (async () => {
+          const tesseract = await import("tesseract.js");
+          // Keep langs aligned with backend default
+          const worker = (await tesseract.createWorker("ara+eng")) as unknown as ClientTessWorker;
+          return worker;
+        })();
+
+        try {
+          _clientTessWorker = await _clientTessWorkerCreating;
+        } finally {
+          _clientTessWorkerCreating = null;
+        }
+      }
+
+      const result = await _clientTessWorker.recognize(targetFile);
+      return String(result?.data?.text || "").trim();
+    },
+    [],
+  );
 
   const downloadAsTxt = useCallback(() => {
     if (!ocrResult.trim()) return;
@@ -525,6 +562,23 @@ export default function UploadPage() {
           setOcrEngineInfo("OCR unavailable");
         }
 
+        // If server OCR didn't return text (common on Vercel), try client-side OCR for images.
+        if (!ocrText && /^image\//i.test(targetFile.type || "")) {
+          try {
+            setOcrEngineInfo("running browser OCR...");
+            const clientText = await runClientOcrFallback(targetFile);
+            if (clientText) {
+              ocrText = clientText;
+              ocrEngine = "tesseract.js (browser)";
+              ocrDevice = "client";
+            }
+          } catch (clientErr) {
+            const msg =
+              clientErr instanceof Error ? clientErr.message : "Browser OCR failed";
+            console.warn("Browser OCR failed:", msg);
+          }
+        }
+
         // Show OCR result immediately and STOP processing state for UI
         if (ocrText) {
           setOcrResult(ocrText);
@@ -535,6 +589,7 @@ export default function UploadPage() {
           setOcrResult("(No text detected by OCR)");
           setOcrEngineInfo(ocrEngine ? `${ocrEngine} • no text found` : "OCR unavailable");
           setProcessing(false);
+          showToast("OCR failed on server; no text detected", "error");
         }
 
         // ── Step 2: Upload to storage + save metadata (background) ──
@@ -588,6 +643,7 @@ export default function UploadPage() {
     [
       user,
       persistFileRecord,
+      runClientOcrFallback,
       showToast,
     ],
   );
