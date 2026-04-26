@@ -17,8 +17,6 @@ import {
 import { useAuth } from "@/app/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
 import OcrSearchableText from "@/components/OcrSearchableText";
-import { uploadFileToStorage } from "@/app/lib/firestore";
-
 type ClientTessWorker = {
   recognize: (image: File | Blob) => Promise<{ data?: { text?: string } }>;
   terminate: () => Promise<unknown>;
@@ -592,24 +590,25 @@ export default function UploadPage() {
           showToast("OCR failed on server; no text detected", "error");
         }
 
-        // ── Step 2: Upload to storage + save metadata (background) ──
+        // ── Step 2: Upload to S3 + save metadata (background) ──
         let storageUrl: string | undefined;
 
         try {
-          const uploadResult = await uploadFileToStorage(
-            targetFile,
-            user.uid,
-            targetFile.name,
-            {
-              timeoutMs: STORAGE_UPLOAD_TIMEOUT_MS,
-              onProgress: (progress) => {
-                if (progress > 0 && progress < 100) {
-                  setOcrEngineInfo(`${ocrEngine || "done"} • uploading ${progress}%`);
-                }
-              },
-            },
-          );
-          storageUrl = uploadResult.url;
+          const formData = new FormData();
+          formData.append("file", targetFile);
+
+          const uploadResponse = await fetch("/api/upload", {
+            method: "POST",
+            body: formData,
+          });
+
+          const uploadJson = await uploadResponse.json();
+
+          if (!uploadResponse.ok) {
+            throw new Error(uploadJson.error || "Failed to upload to S3");
+          }
+
+          storageUrl = uploadJson.storageUrl;
         } catch (storageErr) {
           console.warn("Storage upload failed (file still saved via metadata):", storageErr);
         }
