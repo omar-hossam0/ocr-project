@@ -8,6 +8,7 @@
     "dev:web": "next dev",
     "dev:camera": "node scripts/run-camera-ocr.mjs",
     "ocr:warmup": "node scripts/warmup-ocr.mjs",
+    "ocr:service": "python scripts/ocr_service.py",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

@@ -73,6 +73,22 @@ On Windows, this is typically:
 OCR_PYTHON_PATH=.venv/Scripts/python.exe
 ```
 
+### 1.2 Production OCR Architecture (Recommended)
+
+For Vercel deployments, run OCR as a separate Python service on AWS and let Next.js call it.
+
+Set these environment variables in your Next.js app:
+
+```bash
+OCR_SERVICE_URL=https://your-aws-ocr-service.example.com
+OCR_SERVICE_ENDPOINT=/ocr
+OCR_LOCAL_FALLBACK=0
+OCR_PROCESS_TIMEOUT_MS=300000
+```
+
+If `OCR_SERVICE_URL` is set, `/api/ocr` will call the remote OCR service first.
+If `OCR_LOCAL_FALLBACK=0`, it will not attempt local Python OCR.
+
 ### 2. Firebase Configuration
 
 The Firebase config is already set up in `app/lib/firebase.ts` with your project credentials.
@@ -177,6 +193,21 @@ Use one of these options:
 - Run OCR on AWS/VM/container and call it from the app.
 - Or use a platform where your Node app and Python OCR runtime are installed together.
 
+### AWS OCR Service (Persistent model, faster response)
+
+Run a dedicated OCR service on AWS using:
+
+```bash
+python scripts/ocr_service.py
+```
+
+By default it starts on port `8088`.
+Health check endpoint:
+
+```bash
+GET /health
+```
+
 ## Scripts
 
 ```bash
@@ -184,6 +215,7 @@ npm run dev       # Start development server
 npm run build     # Build for production
 npm start         # Start production server
 npm run lint      # Run ESLint
+npm run ocr:service # Start persistent Python OCR service
 ```
 
 ## Environment Variables

@@ -17,6 +17,100 @@ type PythonRunResult = {
   spawnError?: string;
 };
 
+type RemoteOcrResult =
+  | { ok: true; payload: Record<string, unknown>; endpoint: string }
+  | {
+      ok: false;
+      error: string;
+      endpoint: string;
+      status?: number;
+      details?: unknown;
+    };
+
+function normalizeRemoteEndpoint() {
+  const base = (process.env.OCR_SERVICE_URL || "").trim();
+  if (!base) return "";
+
+  const endpoint = (process.env.OCR_SERVICE_ENDPOINT || "/ocr").trim();
+  const safeBase = base.replace(/\/+$/, "");
+  const safeEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  return `${safeBase}${safeEndpoint}`;
+}
+
+async function runRemoteOcr(
+  uploaded: File,
+  timeoutMs: number,
+): Promise<RemoteOcrResult | null> {
+  const endpoint = normalizeRemoteEndpoint();
+  if (!endpoint) return null;
+
+  const formData = new FormData();
+  formData.append("file", uploaded, uploaded.name || "upload.bin");
+
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      body: formData,
+      signal: controller.signal,
+      cache: "no-store",
+    });
+
+    const rawText = await response.text();
+    let parsed: Record<string, unknown> | null = null;
+
+    try {
+      parsed = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : null;
+    } catch {
+      parsed = null;
+    }
+
+    const remoteSuccess = Boolean(parsed?.success);
+    const parsedDetail =
+      parsed && parsed.detail && typeof parsed.detail === "object"
+        ? (parsed.detail as Record<string, unknown>)
+        : null;
+    const remoteError =
+      (parsed?.error as string) ||
+      (parsedDetail?.error as string) ||
+      "";
+    const remotePayload =
+      parsed && parsed.data && typeof parsed.data === "object"
+        ? (parsed.data as Record<string, unknown>)
+        : parsed;
+
+    if (!response.ok || !remoteSuccess || !remotePayload) {
+      return {
+        ok: false,
+        error: remoteError || `Remote OCR request failed with status ${response.status}`,
+        endpoint,
+        status: response.status,
+        details: parsed || rawText,
+      };
+    }
+
+    return {
+      ok: true,
+      payload: remotePayload,
+      endpoint,
+    };
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Remote OCR call failed";
+    return {
+      ok: false,
+      error: errorMessage,
+      endpoint,
+    };
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
+
 function resolvePythonCandidates() {
   const candidates = [
     process.env.OCR_PYTHON_PATH,
@@ -148,104 +242,144 @@ export async function POST(request: NextRequest) {
   }
 
   const fileExt = path.extname(uploaded.name || "").toLowerCase() || ".bin";
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ocr-upload-"));
-  const tempFilePath = path.join(tempDir, `input${fileExt}`);
   const timeoutMs = Number(process.env.OCR_PROCESS_TIMEOUT_MS || 300000);
+  const localFallbackEnabled =
+    (process.env.OCR_LOCAL_FALLBACK || "1").trim() !== "0";
 
   try {
-    const bytes = Buffer.from(await uploaded.arrayBuffer());
-    await fs.writeFile(tempFilePath, bytes);
+    const remoteResult = await runRemoteOcr(uploaded, timeoutMs);
+    if (remoteResult?.ok) {
+      return NextResponse.json({
+        success: true,
+        data: {
+          ...remoteResult.payload,
+          transport: "remote_ocr_service",
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
 
-    const scriptPath = path.join(process.cwd(), "scripts", "ocr_runner.py");
-    if (!existsSync(scriptPath)) {
+    if (remoteResult && !localFallbackEnabled) {
       return NextResponse.json(
         {
           success: false,
-          error: `OCR script not found at ${scriptPath}`,
-        },
-        { status: 500 },
-      );
-    }
-
-    const candidates = resolvePythonCandidates();
-    const attempts: Array<{
-      command: string;
-      code: number | null;
-      timedOut: boolean;
-      spawnError?: string;
-      stderr: string;
-      payloadError?: string;
-    }> = [];
-
-    for (const candidate of candidates) {
-      const result = await runPythonOcr(
-        candidate,
-        scriptPath,
-        tempFilePath,
-        timeoutMs,
-      );
-
-      const payload = parseLastJsonLine(result.stdout);
-      const payloadError =
-        payload && typeof payload.error === "string" ? payload.error : "";
-
-      attempts.push({
-        command: result.command,
-        code: result.code,
-        timedOut: result.timedOut,
-        spawnError: result.spawnError,
-        stderr: shorten(result.stderr),
-        payloadError: payloadError || undefined,
-      });
-
-      if (result.code === 0 && payload && !payload.error) {
-        return NextResponse.json({
-          success: true,
-          data: payload,
+          error: `Remote OCR failed: ${remoteResult.error}`,
+          endpoint: remoteResult.endpoint,
+          details: remoteResult.details,
+          hint: "Set OCR_SERVICE_URL to a reachable OCR service or enable OCR_LOCAL_FALLBACK=1.",
           timestamp: new Date().toISOString(),
-        });
+        },
+        { status: 502 },
+      );
+    }
+
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ocr-upload-"));
+    const tempFilePath = path.join(tempDir, `input${fileExt}`);
+
+    try {
+      const bytes = Buffer.from(await uploaded.arrayBuffer());
+      await fs.writeFile(tempFilePath, bytes);
+
+      const scriptPath = path.join(process.cwd(), "scripts", "ocr_runner.py");
+      if (!existsSync(scriptPath)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `OCR script not found at ${scriptPath}`,
+          },
+          { status: 500 },
+        );
       }
+
+      const candidates = resolvePythonCandidates();
+      const attempts: Array<{
+        command: string;
+        code: number | null;
+        timedOut: boolean;
+        spawnError?: string;
+        stderr: string;
+        payloadError?: string;
+      }> = [];
+
+      for (const candidate of candidates) {
+        const result = await runPythonOcr(
+          candidate,
+          scriptPath,
+          tempFilePath,
+          timeoutMs,
+        );
+
+        const payload = parseLastJsonLine(result.stdout);
+        const payloadError =
+          payload && typeof payload.error === "string" ? payload.error : "";
+
+        attempts.push({
+          command: result.command,
+          code: result.code,
+          timedOut: result.timedOut,
+          spawnError: result.spawnError,
+          stderr: shorten(result.stderr),
+          payloadError: payloadError || undefined,
+        });
+
+        if (result.code === 0 && payload && !payload.error) {
+          return NextResponse.json({
+            success: true,
+            data: payload,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+
+      const firstUsefulAttempt = attempts.find((item) =>
+        Boolean(item.payloadError || item.stderr || item.spawnError),
+      );
+      const rawError =
+        firstUsefulAttempt?.payloadError ||
+        firstUsefulAttempt?.stderr ||
+        firstUsefulAttempt?.spawnError ||
+        "OCR failed";
+
+      const missingModuleMatch = rawError.match(
+        /No module named ['\"]([^'\"]+)['\"]/,
+      );
+      const isPythonMissing = attempts.every(
+        (item) =>
+          (item.spawnError || "").includes("ENOENT") ||
+          (item.stderr || "").includes("not recognized") ||
+          (item.stderr || "").includes("No such file or directory"),
+      );
+
+      let errorMessage = `OCR failed: ${rawError}`;
+      if (isPythonMissing) {
+        errorMessage =
+          "Python executable not found. Set OCR_PYTHON_PATH or install Python in the server runtime.";
+      } else if (missingModuleMatch?.[1]) {
+        errorMessage = `Missing Python package '${missingModuleMatch[1]}'. Install OCR dependencies in the deployment environment.`;
+      }
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: errorMessage,
+          remoteOcr:
+            remoteResult && !remoteResult.ok
+              ? {
+                  endpoint: remoteResult.endpoint,
+                  error: remoteResult.error,
+                }
+              : undefined,
+          attempts,
+          hint: "If you deploy on Linux, use .venv/bin/python or set OCR_PYTHON_PATH. Install easyocr, opencv-python-headless, pypdfium2, torch.",
+          timestamp: new Date().toISOString(),
+        },
+        {
+          status: 500,
+        },
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
     }
-
-    const firstUsefulAttempt = attempts.find((item) =>
-      Boolean(item.payloadError || item.stderr || item.spawnError),
-    );
-    const rawError =
-      firstUsefulAttempt?.payloadError ||
-      firstUsefulAttempt?.stderr ||
-      firstUsefulAttempt?.spawnError ||
-      "OCR failed";
-
-    const missingModuleMatch = rawError.match(
-      /No module named ['\"]([^'\"]+)['\"]/,
-    );
-    const isPythonMissing = attempts.every(
-      (item) =>
-        (item.spawnError || "").includes("ENOENT") ||
-        (item.stderr || "").includes("not recognized") ||
-        (item.stderr || "").includes("No such file or directory"),
-    );
-
-    let errorMessage = `OCR failed: ${rawError}`;
-    if (isPythonMissing) {
-      errorMessage =
-        "Python executable not found. Set OCR_PYTHON_PATH or install Python in the server runtime.";
-    } else if (missingModuleMatch?.[1]) {
-      errorMessage = `Missing Python package '${missingModuleMatch[1]}'. Install OCR dependencies in the deployment environment.`;
-    }
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: errorMessage,
-        attempts,
-        hint: "If you deploy on Linux, use .venv/bin/python or set OCR_PYTHON_PATH. Install easyocr, opencv-python-headless, pypdfium2, torch.",
-        timestamp: new Date().toISOString(),
-      },
-      {
-        status: 500,
-      },
-    );
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Unexpected OCR API error";
@@ -257,7 +391,5 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 },
     );
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
   }
 }
