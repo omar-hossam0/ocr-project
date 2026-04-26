@@ -36,50 +36,50 @@ function runPythonOcr(
   timeoutMs: number,
 ) {
   return new Promise<PythonRunResult>((resolve) => {
-      let timedOut = false;
-      let spawnError = "";
-      const child = spawn(pythonPath, [scriptPath, filePath], {
-        cwd: process.cwd(),
-        shell: false,
-        windowsHide: true,
-        env: {
-          ...process.env,
-          PYTHONUNBUFFERED: "1",
-        },
+    let timedOut = false;
+    let spawnError = "";
+    const child = spawn(pythonPath, [scriptPath, filePath], {
+      cwd: process.cwd(),
+      shell: false,
+      windowsHide: true,
+      env: {
+        ...process.env,
+        PYTHONUNBUFFERED: "1",
+      },
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    const timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, timeoutMs);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timeoutHandle);
+      resolve({
+        code,
+        stdout,
+        stderr,
+        command: pythonPath,
+        timedOut,
+        spawnError: spawnError || undefined,
       });
+    });
 
-      let stdout = "";
-      let stderr = "";
-
-      const timeoutHandle = setTimeout(() => {
-        timedOut = true;
-        child.kill("SIGTERM");
-      }, timeoutMs);
-
-      child.stdout.on("data", (chunk) => {
-        stdout += String(chunk);
-      });
-
-      child.stderr.on("data", (chunk) => {
-        stderr += String(chunk);
-      });
-
-      child.on("close", (code) => {
-        clearTimeout(timeoutHandle);
-        resolve({
-          code,
-          stdout,
-          stderr,
-          command: pythonPath,
-          timedOut,
-          spawnError: spawnError || undefined,
-        });
-      });
-
-      child.on("error", (error) => {
-        spawnError = error.message;
-        stderr += error.message;
-      });
+    child.on("error", (error) => {
+      spawnError = error.message;
+      stderr += error.message;
+    });
   });
 }
 
@@ -128,7 +128,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: "Failed to parse form data. Make sure request body is valid multipart form data.",
+        error:
+          "Failed to parse form data. Make sure request body is valid multipart form data.",
       },
       { status: 400 },
     );
@@ -206,8 +207,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const firstUsefulAttempt = attempts.find(
-      (item) => Boolean(item.payloadError || item.stderr || item.spawnError),
+    const firstUsefulAttempt = attempts.find((item) =>
+      Boolean(item.payloadError || item.stderr || item.spawnError),
     );
     const rawError =
       firstUsefulAttempt?.payloadError ||
@@ -215,7 +216,9 @@ export async function POST(request: NextRequest) {
       firstUsefulAttempt?.spawnError ||
       "OCR failed";
 
-    const missingModuleMatch = rawError.match(/No module named ['\"]([^'\"]+)['\"]/);
+    const missingModuleMatch = rawError.match(
+      /No module named ['\"]([^'\"]+)['\"]/,
+    );
     const isPythonMissing = attempts.every(
       (item) =>
         (item.spawnError || "").includes("ENOENT") ||
@@ -231,16 +234,18 @@ export async function POST(request: NextRequest) {
       errorMessage = `Missing Python package '${missingModuleMatch[1]}'. Install OCR dependencies in the deployment environment.`;
     }
 
-    return NextResponse.json({
-      success: false,
-      error: errorMessage,
-      attempts,
-      hint: "If you deploy on Linux, use .venv/bin/python or set OCR_PYTHON_PATH. Install easyocr, opencv-python-headless, pypdfium2, torch.",
-      timestamp: new Date().toISOString(),
-    },
-    {
-      status: 500,
-    });
+    return NextResponse.json(
+      {
+        success: false,
+        error: errorMessage,
+        attempts,
+        hint: "If you deploy on Linux, use .venv/bin/python or set OCR_PYTHON_PATH. Install easyocr, opencv-python-headless, pypdfium2, torch.",
+        timestamp: new Date().toISOString(),
+      },
+      {
+        status: 500,
+      },
+    );
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Unexpected OCR API error";
