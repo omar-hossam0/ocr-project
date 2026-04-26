@@ -3,39 +3,58 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function resolvePythonCommand() {
-  if (process.env.OCR_PYTHON_PATH) {
-    return process.env.OCR_PYTHON_PATH;
-  }
+type PythonRunResult = {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+  command: string;
+  timedOut: boolean;
+  spawnError?: string;
+};
 
-  const localVenvPython = path.join(
-    process.cwd(),
-    ".venv",
-    "Scripts",
-    "python.exe",
-  );
-  return localVenvPython;
+function resolvePythonCandidates() {
+  const candidates = [
+    process.env.OCR_PYTHON_PATH,
+    path.join(process.cwd(), ".venv", "Scripts", "python.exe"),
+    path.join(process.cwd(), ".venv", "bin", "python"),
+    "python3",
+    "python",
+  ].filter((item): item is string => Boolean(item && item.trim()));
+
+  return [...new Set(candidates)];
 }
 
 function runPythonOcr(
   pythonPath: string,
   scriptPath: string,
   filePath: string,
+  timeoutMs: number,
 ) {
-  return new Promise<{ code: number | null; stdout: string; stderr: string }>(
-    (resolve) => {
+  return new Promise<PythonRunResult>((resolve) => {
+      let timedOut = false;
+      let spawnError = "";
       const child = spawn(pythonPath, [scriptPath, filePath], {
         cwd: process.cwd(),
         shell: false,
         windowsHide: true,
+        env: {
+          ...process.env,
+          PYTHONUNBUFFERED: "1",
+        },
       });
 
       let stdout = "";
       let stderr = "";
+
+      const timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+      }, timeoutMs);
 
       child.stdout.on("data", (chunk) => {
         stdout += String(chunk);
@@ -46,15 +65,44 @@ function runPythonOcr(
       });
 
       child.on("close", (code) => {
-        resolve({ code, stdout, stderr });
+        clearTimeout(timeoutHandle);
+        resolve({
+          code,
+          stdout,
+          stderr,
+          command: pythonPath,
+          timedOut,
+          spawnError: spawnError || undefined,
+        });
       });
 
       child.on("error", (error) => {
+        spawnError = error.message;
         stderr += error.message;
-        resolve({ code: 1, stdout, stderr });
       });
-    },
-  );
+  });
+}
+
+function parseLastJsonLine(stdout: string): Record<string, unknown> | null {
+  const lines = stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    try {
+      return JSON.parse(lines[i]) as Record<string, unknown>;
+    } catch {
+      // Keep scanning backward until we find a valid JSON payload.
+    }
+  }
+
+  return null;
+}
+
+function shorten(text: string, max = 700) {
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
 export async function POST(request: NextRequest) {
@@ -101,69 +149,97 @@ export async function POST(request: NextRequest) {
   const fileExt = path.extname(uploaded.name || "").toLowerCase() || ".bin";
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ocr-upload-"));
   const tempFilePath = path.join(tempDir, `input${fileExt}`);
+  const timeoutMs = Number(process.env.OCR_PROCESS_TIMEOUT_MS || 300000);
 
   try {
     const bytes = Buffer.from(await uploaded.arrayBuffer());
     await fs.writeFile(tempFilePath, bytes);
 
-    const pythonPath = resolvePythonCommand();
     const scriptPath = path.join(process.cwd(), "scripts", "ocr_runner.py");
-    const result = await runPythonOcr(pythonPath, scriptPath, tempFilePath);
-
-    if (!result.stdout.trim()) {
+    if (!existsSync(scriptPath)) {
       return NextResponse.json(
         {
           success: false,
-          error: "OCR process produced no output",
-          stderr: result.stderr,
+          error: `OCR script not found at ${scriptPath}`,
         },
         { status: 500 },
       );
     }
 
-    let payload: Record<string, unknown> | null = null;
-    const lines = result.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
+    const candidates = resolvePythonCandidates();
+    const attempts: Array<{
+      command: string;
+      code: number | null;
+      timedOut: boolean;
+      spawnError?: string;
+      stderr: string;
+      payloadError?: string;
+    }> = [];
 
-    for (let i = lines.length - 1; i >= 0; i -= 1) {
-      try {
-        payload = JSON.parse(lines[i]) as Record<string, unknown>;
-        break;
-      } catch {
-        // Keep scanning backward until we find a valid JSON payload.
+    for (const candidate of candidates) {
+      const result = await runPythonOcr(
+        candidate,
+        scriptPath,
+        tempFilePath,
+        timeoutMs,
+      );
+
+      const payload = parseLastJsonLine(result.stdout);
+      const payloadError =
+        payload && typeof payload.error === "string" ? payload.error : "";
+
+      attempts.push({
+        command: result.command,
+        code: result.code,
+        timedOut: result.timedOut,
+        spawnError: result.spawnError,
+        stderr: shorten(result.stderr),
+        payloadError: payloadError || undefined,
+      });
+
+      if (result.code === 0 && payload && !payload.error) {
+        return NextResponse.json({
+          success: true,
+          data: payload,
+          timestamp: new Date().toISOString(),
+        });
       }
     }
 
-    if (!payload) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "OCR output was not valid JSON",
-          stdout: result.stdout,
-          stderr: result.stderr,
-        },
-        { status: 500 },
-      );
-    }
+    const firstUsefulAttempt = attempts.find(
+      (item) => Boolean(item.payloadError || item.stderr || item.spawnError),
+    );
+    const rawError =
+      firstUsefulAttempt?.payloadError ||
+      firstUsefulAttempt?.stderr ||
+      firstUsefulAttempt?.spawnError ||
+      "OCR failed";
 
-    if (result.code !== 0 || payload.error) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: payload.error || "OCR processing failed",
-          stderr: result.stderr,
-          code: result.code,
-        },
-        { status: 500 },
-      );
+    const missingModuleMatch = rawError.match(/No module named ['\"]([^'\"]+)['\"]/);
+    const isPythonMissing = attempts.every(
+      (item) =>
+        (item.spawnError || "").includes("ENOENT") ||
+        (item.stderr || "").includes("not recognized") ||
+        (item.stderr || "").includes("No such file or directory"),
+    );
+
+    let errorMessage = `OCR failed: ${rawError}`;
+    if (isPythonMissing) {
+      errorMessage =
+        "Python executable not found. Set OCR_PYTHON_PATH or install Python in the server runtime.";
+    } else if (missingModuleMatch?.[1]) {
+      errorMessage = `Missing Python package '${missingModuleMatch[1]}'. Install OCR dependencies in the deployment environment.`;
     }
 
     return NextResponse.json({
-      success: true,
-      data: payload,
+      success: false,
+      error: errorMessage,
+      attempts,
+      hint: "If you deploy on Linux, use .venv/bin/python or set OCR_PYTHON_PATH. Install easyocr, opencv-python-headless, pypdfium2, torch.",
       timestamp: new Date().toISOString(),
+    },
+    {
+      status: 500,
     });
   } catch (error: unknown) {
     const errorMessage =

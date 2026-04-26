@@ -1,14 +1,15 @@
 import json
+import os
 import sys
 from pathlib import Path
 
 import numpy as np
-import pypdfium2 as pdfium
 
 
 _reader = None
 _cv2 = None
 _torch = None
+_pdfium = None
 
 
 def emit_json(payload: dict) -> None:
@@ -34,6 +35,15 @@ def get_torch():
     return _torch
 
 
+def get_pdfium():
+    global _pdfium
+    if _pdfium is None:
+        import pypdfium2 as pdfium_lib
+
+        _pdfium = pdfium_lib
+    return _pdfium
+
+
 def is_cuda_available() -> bool:
     try:
         return bool(get_torch().cuda.is_available())
@@ -52,6 +62,27 @@ def get_reader():
             verbose=False,
         )
     return _reader
+
+
+def optimize_image_size(image_rgb: np.ndarray) -> np.ndarray:
+    """Downscale huge images to EasyOCR-friendly size to reduce latency."""
+    try:
+        max_side = int(os.environ.get("OCR_MAX_IMAGE_SIDE", "2560"))
+    except Exception:
+        max_side = 2560
+
+    if max_side <= 0:
+        return image_rgb
+
+    height, width = image_rgb.shape[:2]
+    longest = max(height, width)
+    if longest <= max_side:
+        return image_rgb
+
+    scale = max_side / float(longest)
+    new_size = (max(1, int(round(width * scale))), max(1, int(round(height * scale))))
+    cv2 = get_cv2()
+    return cv2.resize(image_rgb, new_size, interpolation=cv2.INTER_AREA)
 
 
 def ocr_image(image_rgb: np.ndarray) -> str:
@@ -89,7 +120,8 @@ def ocr_from_image_path(file_path: Path) -> dict:
     if bgr is None:
         raise ValueError(f"Cannot read image file: {file_path}")
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-    text = ocr_image(rgb)
+    optimized_rgb = optimize_image_size(rgb)
+    text = ocr_image(optimized_rgb)
     return {
         "pages": [text],
         "text": text,
@@ -97,6 +129,7 @@ def ocr_from_image_path(file_path: Path) -> dict:
 
 
 def ocr_from_pdf_path(file_path: Path) -> dict:
+    pdfium = get_pdfium()
     pdf = pdfium.PdfDocument(str(file_path))
     pages = []
     source = []

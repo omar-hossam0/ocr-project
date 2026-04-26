@@ -14,12 +14,16 @@ async function logLine(message) {
   }
 }
 
-function resolvePythonCommand() {
-  if (process.env.OCR_PYTHON_PATH) {
-    return process.env.OCR_PYTHON_PATH;
-  }
+function resolvePythonCandidates() {
+  const candidates = [
+    process.env.OCR_PYTHON_PATH,
+    path.join(process.cwd(), ".venv", "Scripts", "python.exe"),
+    path.join(process.cwd(), ".venv", "bin", "python"),
+    "python3",
+    "python",
+  ].filter((item) => Boolean(item && String(item).trim()));
 
-  return path.join(process.cwd(), ".venv", "Scripts", "python.exe");
+  return [...new Set(candidates)];
 }
 
 function extensionFrom(fileType = "") {
@@ -48,16 +52,27 @@ function parseLastJsonLine(stdout) {
   return null;
 }
 
-function runPythonOcr(pythonPath, scriptPath, filePath) {
+function runPythonOcr(pythonPath, scriptPath, filePath, timeoutMs = 300000) {
   return new Promise((resolve) => {
+    let timedOut = false;
+    let spawnError = "";
     const child = spawn(pythonPath, [scriptPath, filePath], {
       cwd: process.cwd(),
       shell: false,
       windowsHide: true,
+      env: {
+        ...process.env,
+        PYTHONUNBUFFERED: "1",
+      },
     });
 
     let stdout = "";
     let stderr = "";
+
+    const timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
       stdout += String(chunk);
@@ -68,11 +83,20 @@ function runPythonOcr(pythonPath, scriptPath, filePath) {
     });
 
     child.on("close", (code) => {
-      resolve({ code, stdout, stderr });
+      clearTimeout(timeoutHandle);
+      resolve({
+        code,
+        stdout,
+        stderr,
+        command: pythonPath,
+        timedOut,
+        spawnError: spawnError || undefined,
+      });
     });
 
     child.on("error", (error) => {
-      resolve({ code: 1, stdout, stderr: error.message });
+      spawnError = error.message;
+      stderr += error.message;
     });
   });
 }
@@ -117,14 +141,40 @@ async function main() {
     const bytes = Buffer.from(await response.arrayBuffer());
     await fs.writeFile(tempFilePath, bytes);
 
-    const pythonPath = resolvePythonCommand();
     const scriptPath = path.join(process.cwd(), "scripts", "ocr_runner.py");
-    const run = await runPythonOcr(pythonPath, scriptPath, tempFilePath);
-    await logLine(`python-exit fileId=${fileId} code=${run.code}`);
-    const payload = parseLastJsonLine(run.stdout);
+    const attempts = [];
+    let payload = null;
+    let run = null;
 
-    if (!payload || run.code !== 0 || payload.error) {
-      const reason = payload?.error || run.stderr || "OCR failed";
+    for (const pythonPath of resolvePythonCandidates()) {
+      const attempt = await runPythonOcr(pythonPath, scriptPath, tempFilePath);
+      attempts.push(attempt);
+
+      const maybePayload = parseLastJsonLine(attempt.stdout);
+      if (attempt.code === 0 && maybePayload && !maybePayload.error) {
+        payload = maybePayload;
+        run = attempt;
+        break;
+      }
+    }
+
+    if (!payload || !run) {
+      const bestAttempt = attempts.find(
+        (item) =>
+          Boolean(item.stderr) ||
+          Boolean(item.spawnError) ||
+          Boolean(parseLastJsonLine(item.stdout)?.error),
+      );
+
+      const bestPayload = bestAttempt
+        ? parseLastJsonLine(bestAttempt.stdout)
+        : null;
+      const reason =
+        bestPayload?.error ||
+        bestAttempt?.stderr ||
+        bestAttempt?.spawnError ||
+        "OCR failed";
+
       await patchFile(baseUrl, fileId, {
         status: "failed",
         notes: `OCR failed: ${reason}`,
@@ -134,6 +184,10 @@ async function main() {
       );
       return;
     }
+
+    await logLine(
+      `python-exit fileId=${fileId} code=${run.code} command=${run.command} timedOut=${run.timedOut}`,
+    );
 
     const extractedText = String(payload.text || "").trim();
     const engine = String(payload.engine || "easyocr").trim();

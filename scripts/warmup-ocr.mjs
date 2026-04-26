@@ -3,13 +3,21 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 
 function resolvePythonPath() {
-  if (process.env.OCR_PYTHON_PATH) {
-    return process.env.OCR_PYTHON_PATH;
-  }
+  const candidates = [
+    process.env.OCR_PYTHON_PATH,
+    path.join(process.cwd(), ".venv", "Scripts", "python.exe"),
+    path.join(process.cwd(), ".venv", "bin", "python"),
+    "python3",
+    "python",
+  ].filter((item) => Boolean(item && String(item).trim()));
 
-  const venvPython = path.join(process.cwd(), ".venv", "Scripts", "python.exe");
-  if (existsSync(venvPython)) {
-    return venvPython;
+  for (const candidate of candidates) {
+    if (!candidate.includes(path.sep) && !candidate.includes("/")) {
+      return candidate;
+    }
+    if (existsSync(candidate)) {
+      return candidate;
+    }
   }
 
   return "python";

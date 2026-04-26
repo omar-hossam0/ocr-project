@@ -5,3 +5,7 @@ transformers>=4.40.0
 datasets>=2.18.0
 accelerate>=0.28.0
 pillow>=10.0.0
+numpy>=1.26.0
+easyocr>=1.7.1
+opencv-python-headless>=4.9.0.80
+pypdfium2>=4.30.0
