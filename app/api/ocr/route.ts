@@ -245,10 +245,25 @@ export async function POST(request: NextRequest) {
 
   const fileExt = path.extname(uploaded.name || "").toLowerCase() || ".bin";
   const timeoutMs = Number(process.env.OCR_PROCESS_TIMEOUT_MS || 300000);
+  const remoteEndpoint = normalizeRemoteEndpoint();
+  const localFallbackDefault = process.env.VERCEL ? "0" : "1";
   const localFallbackEnabled =
-    (process.env.OCR_LOCAL_FALLBACK || "1").trim() !== "0";
+    (process.env.OCR_LOCAL_FALLBACK || localFallbackDefault).trim() !== "0";
 
   try {
+    if (!remoteEndpoint && !localFallbackEnabled) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "OCR service is not configured in this deployment. Set OCR_SERVICE_URL (and optional OCR_SERVICE_ENDPOINT) in environment variables.",
+          hint: "For Vercel production, keep OCR_LOCAL_FALLBACK=0 and route OCR to your AWS OCR service.",
+          timestamp: new Date().toISOString(),
+        },
+        { status: 503 },
+      );
+    }
+
     const remoteResult = await runRemoteOcr(uploaded, timeoutMs);
     if (remoteResult?.ok) {
       return NextResponse.json({
