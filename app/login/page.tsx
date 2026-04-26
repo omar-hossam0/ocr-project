@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  FileText,
   Eye,
   EyeOff,
   Mail,
@@ -15,6 +14,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/app/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
+import BrandLogo from "@/components/BrandLogo";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -144,12 +144,7 @@ export default function LoginPage() {
           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-black/10" />
           <div className="absolute bottom-6 left-6 z-10">
             <Link href="/" className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 bg-white/20 backdrop-blur-md rounded-lg flex items-center justify-center border border-white/30">
-                <FileText className="w-4 h-4 text-white" />
-              </div>
-              <span className="text-base font-bold text-white drop-shadow">
-                DocuMind AI
-              </span>
+              <BrandLogo size="sm" showSubtitle={false} />
             </Link>
             <p className="text-white/65 text-[11px] max-w-[180px] leading-relaxed drop-shadow">
               AI-powered document archiving scan, search & retrieve in seconds.
@@ -161,10 +156,7 @@ export default function LoginPage() {
         <div className="flex-1 flex items-center justify-center px-7 sm:px-9 py-8 bg-[#0d0f1a]">
           <div className="w-full max-w-xs">
             <div className="md:hidden flex items-center gap-2 mb-6 justify-center">
-              <div className="w-8 h-8 bg-sky-500 rounded-lg flex items-center justify-center">
-                <FileText className="w-4 h-4 text-white" />
-              </div>
-              <span className="text-lg font-bold text-white">DocuMind AI</span>
+              <BrandLogo size="sm" showSubtitle={false} />
             </div>
 
             <div className="mb-4">

@@ -12,6 +12,7 @@ import {
   Search,
   Loader2,
   Plus,
+  Trash2,
 } from "lucide-react";
 import { useAuth } from "@/app/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
@@ -90,12 +91,13 @@ function actionBadge(action: TrackingAction): string {
 
 export default function TrackingPage() {
   const { user } = useAuth();
-  const { showToast } = useToast();
+  const { showToast, showConfirmToast } = useToast();
 
   const [records, setRecords] = useState<TrackingRecord[]>([]);
   const [filesById, setFilesById] = useState<Record<string, FileRecord>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
@@ -349,6 +351,45 @@ export default function TrackingPage() {
     }
   };
 
+  const handleDeleteRecord = async (recordId: string) => {
+    if (!recordId || deletingId) return;
+
+    const confirmed = await showConfirmToast(
+      "Delete this tracking record? This cannot be undone.",
+      {
+        confirmText: "Delete",
+        cancelText: "Cancel",
+      },
+    );
+
+    if (!confirmed) return;
+
+    setDeletingId(recordId);
+    try {
+      const response = await fetch(`/api/tracking/${recordId}`, {
+        method: "DELETE",
+      });
+
+      const json = (await response.json()) as {
+        success?: boolean;
+        error?: string;
+      };
+
+      if (!response.ok || !json.success) {
+        throw new Error(json.error || "Failed to delete tracking record");
+      }
+
+      await loadData();
+      showToast("Tracking record deleted successfully", "success");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to delete record";
+      showToast(message, "error");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -556,6 +597,9 @@ export default function TrackingPage() {
                 <th className="px-6 py-4 font-medium text-gray-500 text-xs uppercase tracking-wider">
                   Date & Time
                 </th>
+                <th className="px-6 py-4 font-medium text-gray-500 text-xs uppercase tracking-wider text-right">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
@@ -601,6 +645,21 @@ export default function TrackingPage() {
                       {formatDate(row.dateTime)} · {formatTime(row.dateTime)}
                     </div>
                   </td>
+                  <td className="px-6 py-4 text-right">
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteRecord(row.id)}
+                      disabled={deletingId === row.id}
+                      aria-label={`Delete tracking record for ${row.fileName}`}
+                      className="inline-flex items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 p-2 text-red-300 transition hover:bg-red-500/20 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {deletingId === row.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -610,15 +669,30 @@ export default function TrackingPage() {
         <div className="md:hidden divide-y divide-white/5">
           {filteredRows.map((row) => (
             <div key={row.id} className="p-4 space-y-2">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-start justify-between gap-2">
                 <div className="font-medium text-white text-sm">
                   {row.fileName}
                 </div>
-                <span
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${actionBadge(row.action)}`}
-                >
-                  {row.actionLabel}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${actionBadge(row.action)}`}
+                  >
+                    {row.actionLabel}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteRecord(row.id)}
+                    disabled={deletingId === row.id}
+                    aria-label={`Delete tracking record for ${row.fileName}`}
+                    className="inline-flex items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 p-2 text-red-300 transition hover:bg-red-500/20 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {deletingId === row.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
               </div>
               <div className="text-xs text-gray-400">
                 {row.userName} · {row.department}

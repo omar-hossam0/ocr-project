@@ -5,13 +5,13 @@ import {
   LayoutDashboard,
   Upload,
   Search,
-  FileText,
   Activity,
   Settings,
   LogOut,
   ChevronsUpDown,
 } from "lucide-react";
 import { useAuth } from "@/app/lib/auth-context";
+import BrandLogo from "@/components/BrandLogo";
 import {
   Sidebar,
   SidebarContent,
@@ -63,17 +63,7 @@ function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link href="/">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sky-500">
-                  <FileText className="size-4 text-white" />
-                </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-bold text-white">
-                    DocuMind AI
-                  </span>
-                  <span className="truncate text-xs text-sky-400">
-                    Smart Archiving
-                  </span>
-                </div>
+                <BrandLogo size="sm" />
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { gsap } from "gsap";
 import { GoArrowUpRight } from "react-icons/go";
-import { FileText } from "lucide-react";
+import BrandLogo from "@/components/BrandLogo";
 
 const NAV_ITEMS = [
   {
@@ -203,10 +203,7 @@ export default function Navbar() {
             href="/"
             className="flex items-center gap-2 order-1 md:order-none md:absolute md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2"
           >
-            <div className="w-7 h-7 bg-sky-500 rounded-lg flex items-center justify-center">
-              <FileText className="w-4 h-4 text-white" />
-            </div>
-            <span className="text-sm font-bold text-white">DocuMind AI</span>
+            <BrandLogo size="sm" showSubtitle={false} />
           </Link>
 
           {/* CTA button */}

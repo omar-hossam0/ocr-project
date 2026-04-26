@@ -588,6 +588,18 @@ export async function getTrackingLogs(
   }
 }
 
+export async function deleteFileTransaction(transactionId: string) {
+  try {
+    const transactionRef = doc(db, "fileTransactions", transactionId);
+    await deleteDoc(transactionRef);
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : "Failed to delete tracking record";
+    console.error("Error deleting tracking record:", error);
+    throw new Error(`Failed to delete tracking record: ${errorMessage}`);
+  }
+}
+
 export type FileTransactionAction = "taken" | "returned" | "moved";
 
 export interface FileTransaction {
