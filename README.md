@@ -173,6 +173,7 @@ vercel
 
 Important: `/api/ocr` needs Python + OCR packages at runtime. Vercel Node functions do not automatically install `requirements_arabic_ocr.txt` for this route.
 Use one of these options:
+
 - Run OCR on AWS/VM/container and call it from the app.
 - Or use a platform where your Node app and Python OCR runtime are installed together.
 
