@@ -9,3 +9,6 @@ numpy>=1.26.0
 easyocr>=1.7.1
 opencv-python-headless>=4.9.0.80
 pypdfium2>=4.30.0
+fastapi>=0.111.0
+uvicorn>=0.30.0
+python-multipart>=0.0.9
