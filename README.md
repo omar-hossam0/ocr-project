@@ -53,6 +53,26 @@ A modern web application for intelligent document archiving with OCR capabilitie
 npm install
 ```
 
+### 1.1 Install OCR Python Dependencies
+
+The OCR API route (`/api/ocr`) runs a Python script (`scripts/ocr_runner.py`) and requires Python packages.
+
+```bash
+python -m pip install -r requirements_arabic_ocr.txt
+```
+
+If your server uses a virtual environment, set:
+
+```bash
+OCR_PYTHON_PATH=/absolute/path/to/.venv/bin/python
+```
+
+On Windows, this is typically:
+
+```bash
+OCR_PYTHON_PATH=.venv/Scripts/python.exe
+```
+
 ### 2. Firebase Configuration
 
 The Firebase config is already set up in `app/lib/firebase.ts` with your project credentials.
@@ -150,6 +170,11 @@ firebase deploy
 ```bash
 vercel
 ```
+
+Important: `/api/ocr` needs Python + OCR packages at runtime. Vercel Node functions do not automatically install `requirements_arabic_ocr.txt` for this route.
+Use one of these options:
+- Run OCR on AWS/VM/container and call it from the app.
+- Or use a platform where your Node app and Python OCR runtime are installed together.
 
 ## Scripts
 
