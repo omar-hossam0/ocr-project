@@ -229,9 +229,7 @@ async function runJsOcrFallback(uploaded: File, fileExt: string) {
 
   try {
     const tesseract = (await import("tesseract.js")) as {
-      createWorker: (
-        langs?: string,
-      ) => Promise<{
+      createWorker: (langs?: string) => Promise<{
         recognize: (image: Buffer) => Promise<{ data?: { text?: string } }>;
         terminate: () => Promise<unknown>;
       }>;
@@ -325,7 +323,9 @@ export async function POST(request: NextRequest) {
           }
         } catch (jsError: unknown) {
           const errorMessage =
-            jsError instanceof Error ? jsError.message : "JS OCR fallback failed";
+            jsError instanceof Error
+              ? jsError.message
+              : "JS OCR fallback failed";
           return NextResponse.json(
             {
               success: false,
