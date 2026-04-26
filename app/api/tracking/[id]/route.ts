@@ -25,7 +25,9 @@ export async function DELETE(
     });
   } catch (error: unknown) {
     const errorMessage =
-      error instanceof Error ? error.message : "Failed to delete tracking record";
+      error instanceof Error
+        ? error.message
+        : "Failed to delete tracking record";
 
     return NextResponse.json(
       {
