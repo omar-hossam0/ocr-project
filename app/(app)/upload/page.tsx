@@ -410,6 +410,29 @@ export default function UploadPage() {
       } catch (err) {
         const errorMessage =
           err instanceof Error ? err.message : "Error processing file";
+
+        const isOcrInfraUnavailable =
+          /Python executable not found|OCR service is not configured|Remote OCR failed|Set OCR_SERVICE_URL/i.test(
+            errorMessage,
+          );
+
+        if (isOcrInfraUnavailable) {
+          setOcrEngineInfo("OCR unavailable (saved without OCR text)");
+          const savedFileId = await persistFileRecord(targetFile, "");
+          if (savedFileId) {
+            setBackgroundFileId(savedFileId);
+            setBackgroundStatus("failed");
+            setError(
+              "OCR service is currently unavailable. File metadata was saved without extracted text.",
+            );
+            showToast(
+              "OCR unavailable now. File saved without OCR text.",
+              "success",
+            );
+            return;
+          }
+        }
+
         setError(errorMessage);
         setOcrEngineInfo("queue failed");
         showToast(errorMessage, "error");
