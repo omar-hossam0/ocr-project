@@ -17,6 +17,7 @@ import {
 import { useAuth } from "@/app/lib/auth-context";
 import { useToast } from "@/components/ToastProvider";
 import OcrSearchableText from "@/components/OcrSearchableText";
+import { uploadFileToStorage } from "@/app/lib/firestore";
 
 type FileStatus =
   | "available"
@@ -26,6 +27,7 @@ type FileStatus =
   | "in_archive";
 const OCR_JOB_STORAGE_KEY = "ocrBackgroundFileId";
 const OCR_CLIENT_TIMEOUT_MS = 45000;
+const STORAGE_UPLOAD_TIMEOUT_MS = 30000;
 
 async function withTimeout<T>(
   promise: Promise<T>,
@@ -242,7 +244,15 @@ export default function UploadPage() {
   }, [ocrResult, downloadBlob, getSafeExportBaseName, showToast]);
 
   const persistFileRecord = useCallback(
-    async (targetFile: File, ocrTextValue: string) => {
+    async (
+      targetFile: File,
+      ocrTextValue: string,
+      options?: {
+        status?: FileStatus;
+        storageUrl?: string;
+        notesOverride?: string;
+      },
+    ) => {
       if (!user) {
         const msg = "Missing user";
         setError(msg);
@@ -268,12 +278,13 @@ export default function UploadPage() {
             .split(",")
             .map((t) => t.trim())
             .filter(Boolean),
-          notes,
+          notes: options?.notesOverride ?? notes,
           ocrText: ocrTextValue,
           fileSize: targetFile.size,
+          storageUrl: options?.storageUrl,
           uploadedAt: new Date(),
           modifiedAt: new Date(),
-          status: "available" as const,
+          status: (options?.status || "available") as FileStatus,
         };
 
         const saveResponse = await fetch("/api/files", {
@@ -308,6 +319,90 @@ export default function UploadPage() {
       }
     },
     [user, fileName, location, department, tags, notes, showToast],
+  );
+
+  const patchSavedFile = useCallback(
+    async (
+      fileId: string,
+      updates: { ocrText?: string; status?: FileStatus; notes?: string },
+    ) => {
+      const response = await fetch(`/api/files/${fileId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(updates),
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error || "Failed to update saved file");
+      }
+    },
+    [],
+  );
+
+  const runBackgroundOcr = useCallback(
+    async (savedFileId: string, targetFile: File) => {
+      try {
+        const formData = new FormData();
+        formData.append("file", targetFile);
+
+        const ocrResponse = await withTimeout(
+          fetch("/api/ocr", {
+            method: "POST",
+            headers: {
+              "x-ocr-js-fallback": "1",
+            },
+            body: formData,
+          }),
+          OCR_CLIENT_TIMEOUT_MS,
+          "OCR processing",
+        );
+
+        const ocrJson = (await ocrResponse.json()) as {
+          success?: boolean;
+          data?: { text?: string; engine?: string; device?: string };
+          error?: string;
+        };
+
+        if (!ocrResponse.ok || !ocrJson.success) {
+          throw new Error(ocrJson.error || "Failed to run OCR");
+        }
+
+        const text = (ocrJson.data?.text || "").trim();
+        await patchSavedFile(savedFileId, {
+          status: "available",
+          ocrText: text,
+          notes: `OCR complete (${ocrJson.data?.engine || "engine"} • ${ocrJson.data?.device || "cpu"})`,
+        });
+
+        setBackgroundStatus("available");
+        setOcrResult(text || "(No text detected by OCR)");
+        setOcrEngineInfo(
+          `${ocrJson.data?.engine || "easyocr"} • ${ocrJson.data?.device || "cpu"}`,
+        );
+        if (typeof window !== "undefined") {
+          localStorage.removeItem(OCR_JOB_STORAGE_KEY);
+        }
+        showToast("OCR completed in background", "success");
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : "OCR background processing failed";
+
+        await patchSavedFile(savedFileId, {
+          status: "failed",
+          notes: `OCR failed: ${errorMessage}`,
+        }).catch(() => undefined);
+
+        setBackgroundStatus("failed");
+        setOcrEngineInfo("queue failed");
+        setError(
+          "File uploaded successfully, but OCR is unavailable/slow in this deployment.",
+        );
+      }
+    },
+    [patchSavedFile, showToast],
   );
 
   const pollBackgroundResult = useCallback(async (fileId: string) => {
@@ -367,58 +462,50 @@ export default function UploadPage() {
       setError("");
 
       try {
-        setOcrEngineInfo("running OCR model...");
-
-        const formData = new FormData();
-        formData.append("file", targetFile);
-
-        const ocrResponse = await withTimeout(
-          fetch("/api/ocr", {
-            method: "POST",
-            body: formData,
-          }),
-          OCR_CLIENT_TIMEOUT_MS,
-          "OCR processing",
+        setOcrEngineInfo("uploading file...");
+        const uploadedStorage = await withTimeout(
+          uploadFileToStorage(targetFile, user.uid, targetFile.name),
+          STORAGE_UPLOAD_TIMEOUT_MS,
+          "Storage upload",
         );
 
-        const ocrJson = (await ocrResponse.json()) as {
-          success?: boolean;
-          data?: { text?: string; engine?: string; device?: string };
-          error?: string;
-        };
+        setOcrEngineInfo("saving metadata...");
+        const savedFileId = await persistFileRecord(targetFile, "", {
+          status: "processing",
+          storageUrl: uploadedStorage.url,
+          notesOverride: "OCR pending",
+        });
 
-        if (!ocrResponse.ok || !ocrJson.success) {
-          throw new Error(ocrJson.error || "Failed to run OCR");
-        }
-
-        const text = (ocrJson.data?.text || "").trim();
-        setOcrResult(text || "(No text detected by OCR)");
-        setOcrEngineInfo(
-          `${ocrJson.data?.engine || "easyocr"} • ${ocrJson.data?.device || "cpu"}`,
-        );
-
-        setOcrEngineInfo("saving file record to database...");
-        const savedFileId = await persistFileRecord(targetFile, text);
         if (savedFileId) {
           setBackgroundFileId(savedFileId);
-          setBackgroundStatus("available");
+          setBackgroundStatus("processing");
           if (typeof window !== "undefined") {
-            localStorage.removeItem(OCR_JOB_STORAGE_KEY);
+            localStorage.setItem(OCR_JOB_STORAGE_KEY, savedFileId);
           }
-        }
 
-        showToast("OCR finished and saved to database", "success");
+          setOcrEngineInfo("running OCR in background...");
+          showToast("File uploaded. OCR started in background.", "success");
+
+          void runBackgroundOcr(savedFileId, targetFile);
+          void pollBackgroundResult(savedFileId)
+            .then(() => {
+              setBackgroundStatus("available");
+            })
+            .catch(() => {
+              setBackgroundStatus("failed");
+            });
+        }
       } catch (err) {
         const errorMessage =
           err instanceof Error ? err.message : "Error processing file";
 
         const isOcrInfraUnavailable =
-          /Python executable not found|OCR service is not configured|Remote OCR failed|Set OCR_SERVICE_URL|timed out|timeout|aborted/i.test(
+          /Python executable not found|OCR service is not configured|Remote OCR failed|Set OCR_SERVICE_URL|OCR processing timed out|OCR JS fallback failed|OCR failed|aborted/i.test(
             errorMessage,
           );
 
         if (isOcrInfraUnavailable) {
-          setOcrEngineInfo("OCR unavailable (saved without OCR text)");
+          setOcrEngineInfo("OCR unavailable");
           const savedFileId = await persistFileRecord(targetFile, "");
           if (savedFileId) {
             setBackgroundFileId(savedFileId);
@@ -441,7 +528,7 @@ export default function UploadPage() {
         setProcessing(false);
       }
     },
-    [user, persistFileRecord, showToast],
+    [user, persistFileRecord, showToast, runBackgroundOcr, pollBackgroundResult],
   );
 
   const handleFileSelect = useCallback((selected: File) => {

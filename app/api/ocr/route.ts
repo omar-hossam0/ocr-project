@@ -311,7 +311,9 @@ export async function POST(request: NextRequest) {
   const localFallbackEnabled =
     (process.env.OCR_LOCAL_FALLBACK || localFallbackDefault).trim() !== "0";
   const jsFallbackDefault = process.env.VERCEL ? "0" : "1";
+  const forceJsFallback = request.headers.get("x-ocr-js-fallback") === "1";
   const jsFallbackEnabled =
+    forceJsFallback ||
     (process.env.OCR_JS_FALLBACK || jsFallbackDefault).trim() !== "0";
 
   try {
