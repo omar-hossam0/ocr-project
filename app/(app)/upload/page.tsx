@@ -388,7 +388,9 @@ export default function UploadPage() {
         showToast("OCR completed in background", "success");
       } catch (err) {
         const errorMessage =
-          err instanceof Error ? err.message : "OCR background processing failed";
+          err instanceof Error
+            ? err.message
+            : "OCR background processing failed";
 
         await patchSavedFile(savedFileId, {
           status: "failed",
@@ -528,7 +530,13 @@ export default function UploadPage() {
         setProcessing(false);
       }
     },
-    [user, persistFileRecord, showToast, runBackgroundOcr, pollBackgroundResult],
+    [
+      user,
+      persistFileRecord,
+      showToast,
+      runBackgroundOcr,
+      pollBackgroundResult,
+    ],
   );
 
   const handleFileSelect = useCallback((selected: File) => {
