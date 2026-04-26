@@ -89,6 +89,13 @@ OCR_PROCESS_TIMEOUT_MS=300000
 If `OCR_SERVICE_URL` is set, `/api/ocr` will call the remote OCR service first.
 If `OCR_LOCAL_FALLBACK=0`, it will not attempt local Python OCR.
 
+If both remote and local OCR are unavailable, the API can use JavaScript OCR fallback (Tesseract.js) for image files:
+
+```bash
+OCR_JS_FALLBACK=1
+OCR_JS_LANGS=eng+ara
+```
+
 ### 2. Firebase Configuration
 
 The Firebase config is already set up in `app/lib/firebase.ts` with your project credentials.

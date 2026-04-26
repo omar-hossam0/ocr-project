@@ -27,6 +27,18 @@ type RemoteOcrResult =
       details?: unknown;
     };
 
+const IMAGE_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".bmp",
+  ".tif",
+  ".tiff",
+  ".webp",
+]);
+
+const JS_FALLBACK_DEFAULT_LANG = "eng+ara";
+
 function normalizeRemoteEndpoint() {
   const base = (process.env.OCR_SERVICE_URL || "").trim();
   if (!base) return "";
@@ -201,6 +213,54 @@ function shorten(text: string, max = 700) {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
+async function runJsOcrFallback(uploaded: File, fileExt: string) {
+  if (!IMAGE_EXTENSIONS.has(fileExt)) {
+    return null;
+  }
+
+  const tesseractLang =
+    (process.env.OCR_JS_LANGS || JS_FALLBACK_DEFAULT_LANG).trim() ||
+    JS_FALLBACK_DEFAULT_LANG;
+
+  let worker: {
+    recognize: (image: Buffer) => Promise<{ data?: { text?: string } }>;
+    terminate: () => Promise<unknown>;
+  } | null = null;
+
+  try {
+    const tesseract = (await import("tesseract.js")) as {
+      createWorker: (
+        langs?: string,
+      ) => Promise<{
+        recognize: (image: Buffer) => Promise<{ data?: { text?: string } }>;
+        terminate: () => Promise<unknown>;
+      }>;
+    };
+
+    worker = await tesseract.createWorker(tesseractLang);
+    const imageBytes = Buffer.from(await uploaded.arrayBuffer());
+    const result = await worker.recognize(imageBytes);
+    const text = String(result?.data?.text || "").trim();
+
+    return {
+      success: true,
+      engine: "tesseract.js",
+      device: "cpu",
+      text,
+      pages: [text],
+      transport: "js_fallback",
+    };
+  } finally {
+    if (worker) {
+      try {
+        await worker.terminate();
+      } catch {
+        // Ignore cleanup failures.
+      }
+    }
+  }
+}
+
 export async function POST(request: NextRequest) {
   const contentType = request.headers.get("content-type") || "";
   if (
@@ -249,9 +309,35 @@ export async function POST(request: NextRequest) {
   const localFallbackDefault = process.env.VERCEL ? "0" : "1";
   const localFallbackEnabled =
     (process.env.OCR_LOCAL_FALLBACK || localFallbackDefault).trim() !== "0";
+  const jsFallbackEnabled = (process.env.OCR_JS_FALLBACK || "1").trim() !== "0";
 
   try {
     if (!remoteEndpoint && !localFallbackEnabled) {
+      if (jsFallbackEnabled) {
+        try {
+          const jsPayload = await runJsOcrFallback(uploaded, fileExt);
+          if (jsPayload) {
+            return NextResponse.json({
+              success: true,
+              data: jsPayload,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } catch (jsError: unknown) {
+          const errorMessage =
+            jsError instanceof Error ? jsError.message : "JS OCR fallback failed";
+          return NextResponse.json(
+            {
+              success: false,
+              error: `OCR JS fallback failed: ${errorMessage}`,
+              hint: "Set OCR_SERVICE_URL for AWS OCR service, or upload an image file supported by JS fallback.",
+              timestamp: new Date().toISOString(),
+            },
+            { status: 503 },
+          );
+        }
+      }
+
       return NextResponse.json(
         {
           success: false,
@@ -277,6 +363,21 @@ export async function POST(request: NextRequest) {
     }
 
     if (remoteResult && !localFallbackEnabled) {
+      if (jsFallbackEnabled) {
+        try {
+          const jsPayload = await runJsOcrFallback(uploaded, fileExt);
+          if (jsPayload) {
+            return NextResponse.json({
+              success: true,
+              data: jsPayload,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } catch {
+          // Keep remote failure response below when JS fallback also fails.
+        }
+      }
+
       return NextResponse.json(
         {
           success: false,
@@ -369,6 +470,21 @@ export async function POST(request: NextRequest) {
 
       let errorMessage = `OCR failed: ${rawError}`;
       if (isPythonMissing) {
+        if (jsFallbackEnabled) {
+          try {
+            const jsPayload = await runJsOcrFallback(uploaded, fileExt);
+            if (jsPayload) {
+              return NextResponse.json({
+                success: true,
+                data: jsPayload,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          } catch {
+            // Keep original python-missing response below.
+          }
+        }
+
         errorMessage =
           "Python executable not found. Set OCR_PYTHON_PATH or install Python in the server runtime.";
       } else if (missingModuleMatch?.[1]) {
