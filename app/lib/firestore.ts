@@ -430,20 +430,88 @@ export async function uploadFileToStorage(
   file: File,
   userId: string,
   fileName: string,
+  options?: {
+    timeoutMs?: number;
+    onProgress?: (progressPercent: number) => void;
+  },
 ) {
+  const timeoutMs = Math.max(30000, Number(options?.timeoutMs || 180000));
+  const safeName = fileName.replace(/\s+/g, "_");
+
   try {
-    const storageRef = ref(
-      storage,
-      `uploads/${userId}/${Date.now()}_${fileName}`,
-    );
-    const snapshot = await uploadBytes(storageRef, file);
-    const downloadUrl = await getDownloadURL(snapshot.ref);
-    return { path: snapshot.ref.fullPath, url: downloadUrl };
+    const storageRef = ref(storage, `uploads/${userId}/${Date.now()}_${safeName}`);
+    const uploadTask = uploadBytesResumable(storageRef, file, {
+      contentType: file.type || undefined,
+    });
+
+    return await new Promise<{ path: string; url: string }>((resolve, reject) => {
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+      const resetStallTimer = () => {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+        }
+        timeoutHandle = setTimeout(() => {
+          uploadTask.cancel();
+          reject(
+            new Error(
+              `Storage upload stalled after ${Math.round(timeoutMs / 1000)}s`,
+            ),
+          );
+        }, timeoutMs);
+      };
+
+      options?.onProgress?.(0);
+      resetStallTimer();
+
+      uploadTask.on(
+        "state_changed",
+        (snapshot) => {
+          const progress =
+            snapshot.totalBytes > 0
+              ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+              : 0;
+          options?.onProgress?.(progress);
+          resetStallTimer();
+        },
+        (error: unknown) => {
+          if (timeoutHandle) {
+            clearTimeout(timeoutHandle);
+          }
+          const storageCode =
+            typeof error === "object" && error && "code" in error
+              ? String((error as { code?: string }).code)
+              : "storage/unknown";
+          const storageMessage =
+            error instanceof Error ? error.message : "Storage upload failed";
+          reject(new Error(`Storage upload failed (${storageCode}): ${storageMessage}`));
+        },
+        async () => {
+          if (timeoutHandle) {
+            clearTimeout(timeoutHandle);
+          }
+          try {
+            const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+            options?.onProgress?.(100);
+            resolve({
+              path: uploadTask.snapshot.ref.fullPath,
+              url: downloadUrl,
+            });
+          } catch (error: unknown) {
+            const errorMessage =
+              error instanceof Error
+                ? error.message
+                : "Could not obtain storage download URL";
+            reject(new Error(`Storage upload finished but URL fetch failed: ${errorMessage}`));
+          }
+        },
+      );
+    });
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Failed to upload file";
     console.error("Error uploading file:", error);
-    throw new Error(`Failed to upload file: ${errorMessage}`);
+    throw new Error(errorMessage);
   }
 }
 
