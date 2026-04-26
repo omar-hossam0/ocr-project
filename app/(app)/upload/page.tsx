@@ -25,6 +25,7 @@ type FileStatus =
   | "checked_out"
   | "in_archive";
 const OCR_JOB_STORAGE_KEY = "ocrBackgroundFileId";
+const OCR_CLIENT_TIMEOUT_MS = 45000;
 
 async function withTimeout<T>(
   promise: Promise<T>,
@@ -376,7 +377,7 @@ export default function UploadPage() {
             method: "POST",
             body: formData,
           }),
-          300000,
+          OCR_CLIENT_TIMEOUT_MS,
           "OCR processing",
         );
 
@@ -412,7 +413,7 @@ export default function UploadPage() {
           err instanceof Error ? err.message : "Error processing file";
 
         const isOcrInfraUnavailable =
-          /Python executable not found|OCR service is not configured|Remote OCR failed|Set OCR_SERVICE_URL/i.test(
+          /Python executable not found|OCR service is not configured|Remote OCR failed|Set OCR_SERVICE_URL|timed out|timeout|aborted/i.test(
             errorMessage,
           );
 
@@ -423,10 +424,10 @@ export default function UploadPage() {
             setBackgroundFileId(savedFileId);
             setBackgroundStatus("failed");
             setError(
-              "OCR service is currently unavailable. File metadata was saved without extracted text.",
+              "OCR is unavailable or slow right now. File metadata was saved without extracted text.",
             );
             showToast(
-              "OCR unavailable now. File saved without OCR text.",
+              "File saved successfully. OCR was skipped due to timeout/unavailable service.",
               "success",
             );
             return;

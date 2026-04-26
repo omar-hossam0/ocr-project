@@ -83,7 +83,7 @@ Set these environment variables in your Next.js app:
 OCR_SERVICE_URL=https://your-aws-ocr-service.example.com
 OCR_SERVICE_ENDPOINT=/ocr
 OCR_LOCAL_FALLBACK=0
-OCR_PROCESS_TIMEOUT_MS=300000
+OCR_PROCESS_TIMEOUT_MS=45000
 ```
 
 If `OCR_SERVICE_URL` is set, `/api/ocr` will call the remote OCR service first.
@@ -95,6 +95,8 @@ If both remote and local OCR are unavailable, the API can use JavaScript OCR fal
 OCR_JS_FALLBACK=1
 OCR_JS_LANGS=eng+ara
 ```
+
+Note: On Vercel, default behavior is fail-fast (`OCR_LOCAL_FALLBACK=0`, `OCR_JS_FALLBACK=0`) unless you explicitly enable them.
 
 ### 2. Firebase Configuration
 

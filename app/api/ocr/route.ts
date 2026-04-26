@@ -302,12 +302,15 @@ export async function POST(request: NextRequest) {
   }
 
   const fileExt = path.extname(uploaded.name || "").toLowerCase() || ".bin";
-  const timeoutMs = Number(process.env.OCR_PROCESS_TIMEOUT_MS || 300000);
+  const defaultTimeoutMs = process.env.VERCEL ? 45000 : 180000;
+  const timeoutMs = Number(process.env.OCR_PROCESS_TIMEOUT_MS || defaultTimeoutMs);
   const remoteEndpoint = normalizeRemoteEndpoint();
   const localFallbackDefault = process.env.VERCEL ? "0" : "1";
   const localFallbackEnabled =
     (process.env.OCR_LOCAL_FALLBACK || localFallbackDefault).trim() !== "0";
-  const jsFallbackEnabled = (process.env.OCR_JS_FALLBACK || "1").trim() !== "0";
+  const jsFallbackDefault = process.env.VERCEL ? "0" : "1";
+  const jsFallbackEnabled =
+    (process.env.OCR_JS_FALLBACK || jsFallbackDefault).trim() !== "0";
 
   try {
     if (!remoteEndpoint && !localFallbackEnabled) {
