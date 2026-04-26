@@ -27,7 +27,7 @@ type FileStatus =
   | "in_archive";
 const OCR_JOB_STORAGE_KEY = "ocrBackgroundFileId";
 const OCR_CLIENT_TIMEOUT_MS = 45000;
-const STORAGE_UPLOAD_TIMEOUT_MS = 30000;
+const STORAGE_UPLOAD_TIMEOUT_MS = 180000;
 
 async function withTimeout<T>(
   promise: Promise<T>,
@@ -465,10 +465,20 @@ export default function UploadPage() {
 
       try {
         setOcrEngineInfo("uploading file...");
-        const uploadedStorage = await withTimeout(
-          uploadFileToStorage(targetFile, user.uid, targetFile.name),
-          STORAGE_UPLOAD_TIMEOUT_MS,
-          "Storage upload",
+        const uploadedStorage = await uploadFileToStorage(
+          targetFile,
+          user.uid,
+          targetFile.name,
+          {
+            timeoutMs: STORAGE_UPLOAD_TIMEOUT_MS,
+            onProgress: (progress) => {
+              if (progress > 0) {
+                setOcrEngineInfo(`uploading file... ${progress}%`);
+              } else {
+                setOcrEngineInfo("uploading file...");
+              }
+            },
+          },
         );
 
         setOcrEngineInfo("saving metadata...");
@@ -500,6 +510,23 @@ export default function UploadPage() {
       } catch (err) {
         const errorMessage =
           err instanceof Error ? err.message : "Error processing file";
+
+        const isStorageFailure =
+          /Storage upload failed|Storage upload stalled|storage\/|download URL fetch failed/i.test(
+            errorMessage,
+          );
+
+        if (isStorageFailure) {
+          setError(
+            `${errorMessage}. Check Firebase Storage rules and bucket configuration.`,
+          );
+          setOcrEngineInfo("upload failed");
+          showToast(
+            "File upload failed. Verify Firebase Storage rules/permissions.",
+            "error",
+          );
+          return;
+        }
 
         const isOcrInfraUnavailable =
           /Python executable not found|OCR service is not configured|Remote OCR failed|Set OCR_SERVICE_URL|OCR processing timed out|OCR JS fallback failed|OCR failed|aborted/i.test(
