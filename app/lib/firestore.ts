@@ -630,7 +630,8 @@ export async function getUserProfile(
     }
 
     if (!res.ok) {
-      const errMsg = (json && json.error) || res.statusText || "Failed to fetch profile";
+      const errMsg =
+        (json && json.error) || res.statusText || "Failed to fetch profile";
       console.warn("Failed to fetch user profile:", res.status, errMsg);
       return null;
     }
