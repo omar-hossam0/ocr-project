@@ -43,10 +43,10 @@ export default function ProfilePage() {
   useEffect(() => {
     if (!user) return;
 
-    setDisplayName(user.displayName || "");
+    setDisplayName(user.name || "");
     setPhotoURL(user.photoURL || null);
 
-    getUserProfile(user.uid).then((profile: UserProfile | null) => {
+    getUserProfile(user.id).then((profile: UserProfile | null) => {
       if (profile) {
         setPhone(profile.phone || "");
         setDepartment(profile.department || "Legal");
@@ -108,7 +108,7 @@ export default function ProfilePage() {
         );
         const url = await uploadProfilePhotoResumable(
           compressed,
-          user.uid,
+          user.id,
           (pct) => setUploadProgress(pct),
         );
         console.log(`✅ Photo uploaded successfully: ${url}`);
@@ -118,13 +118,13 @@ export default function ProfilePage() {
         setPhotoURL(url);
 
         // Use current displayName or existing one
-        const currentName = displayName.trim() || user.displayName || "User";
+        const currentName = displayName.trim() || user.name || "User";
 
-        // Persist to Auth first (updates Firebase Auth user object)
+        // Persist to Auth first
         await updateUserProfile(currentName, url);
 
-        // Then save full profile to Firestore (includes all fields)
-        await saveUserProfile(user.uid, {
+        // Then save full profile to backend
+        await saveUserProfile(user.id, {
           displayName: currentName,
           photoURL: url,
         });
@@ -160,11 +160,11 @@ export default function ProfilePage() {
     try {
       const finalPhotoURL = photoURL || undefined;
 
-      // Update Firebase Auth profile
+      // Update Auth profile
       await updateUserProfile(displayName, finalPhotoURL);
 
-      // Save extended profile to Firestore
-      await saveUserProfile(user.uid, {
+      // Save extended profile to backend
+      await saveUserProfile(user.id, {
         displayName,
         phone,
         department,

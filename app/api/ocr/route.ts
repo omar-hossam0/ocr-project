@@ -72,7 +72,6 @@ async function getOrCreateTessWorker(lang: string): Promise<TessWorker> {
 
     const Tesseract = await import("tesseract.js");
 
-    // @ts-expect-error - Tesseract.js types can be tricky between versions
     const worker = await Tesseract.createWorker(lang, 1, {
       logger: (m: { status: string; progress: number }) => console.log(`🔍 [Tesseract Progress] ${m.status}: ${Math.round(m.progress * 100)}%`),
       cachePath: path.join(os.tmpdir(), 'tess-data'),
@@ -82,11 +81,9 @@ async function getOrCreateTessWorker(lang: string): Promise<TessWorker> {
       // though tesseract.js usually handles this, sometimes Vercel needs explicit paths.
     });
 
-    // @ts-expect-error - Tesseract.js types can be tricky between versions
-    if (typeof worker.setParameters === 'function') {
-      // @ts-expect-error - Tesseract.js types can be tricky between versions
-      await worker.setParameters({
-        tessedit_pageseg_mode: '3', // PSM 3: Fully automatic page segmentation, but no OSD.
+    if (typeof (worker as { setParameters?: unknown }).setParameters === 'function') {
+      await (worker as unknown as { setParameters: (p: Record<string, unknown>) => Promise<unknown> }).setParameters({
+        tessedit_pageseg_mode: 3,
       });
     }
 

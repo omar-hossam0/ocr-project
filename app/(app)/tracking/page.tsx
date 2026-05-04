@@ -314,8 +314,8 @@ export default function TrackingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fileId: selectedFileId,
-          userId: user.uid,
-          userName: user.displayName || user.email || user.uid,
+          userId: user.id,
+          userName: user.name || user.email || user.id,
           action: selectedAction,
           fromLocation: currentLocation,
           toLocation:

@@ -1,4 +1,5 @@
 "use client";
+import React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -44,13 +45,13 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-function AppSidebar() {
+const AppSidebar = React.memo(function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, signOut } = useAuth();
 
-  const initials = user?.displayName
-    ? user.displayName.slice(0, 2).toUpperCase()
+  const initials = user?.name
+    ? user.name.slice(0, 2).toUpperCase()
     : user?.email
       ? user.email.slice(0, 2).toUpperCase()
       : "U";
@@ -119,7 +120,7 @@ function AppSidebar() {
                   </Avatar>
                   <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-semibold text-white">
-                      {user?.displayName || "Account"}
+                      {user?.name || "Account"}
                     </span>
                     <span className="truncate text-xs text-gray-400">
                       {user?.email || ""}
@@ -160,7 +161,7 @@ function AppSidebar() {
       <SidebarRail />
     </Sidebar>
   );
-}
+});
 
 export { AppSidebar, SidebarProvider, SidebarInset, SidebarTrigger };
 export default AppSidebar;

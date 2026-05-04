@@ -88,7 +88,6 @@ export function StarsBackground({
 
     const renderFrame = () => {
       if (isHidden) {
-        animationFrameId = requestAnimationFrame(renderFrame);
         return;
       }
 
@@ -136,6 +135,9 @@ export function StarsBackground({
 
     const onVisibilityChange = () => {
       isHidden = document.hidden;
+      if (!isHidden && !animationFrameId) {
+        animationFrameId = requestAnimationFrame(renderFrame);
+      }
     };
 
     document.addEventListener("visibilitychange", onVisibilityChange);

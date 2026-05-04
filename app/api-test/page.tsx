@@ -95,7 +95,7 @@ export default function APITestPage() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-white mb-2">
-            🧪 Firebase API Test Suite
+            🧪 Backend API Test Suite
           </h1>
           <p className="text-gray-400">Test all backend connections and APIs</p>
           <button
@@ -180,7 +180,7 @@ export default function APITestPage() {
             <div>
               <code className="text-sky-400">GET /api/health</code>
               <p className="text-gray-400 ml-4">
-                Check Firebase connection status
+                Check backend connection status
               </p>
             </div>
             <div>

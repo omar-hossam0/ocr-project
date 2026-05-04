@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently \"npm run dev:web\" \"npm --prefix backend run dev\"",
     "dev:all": "node scripts/dev-with-camera.mjs",
     "dev:web": "next dev",
+    "dev:backend": "npm --prefix backend run dev",
     "dev:camera": "node scripts/run-camera-ocr.mjs",
     "ocr:warmup": "node scripts/warmup-ocr.mjs",
     "ocr:service": "python scripts/ocr_service.py",
@@ -20,7 +21,6 @@
     "@floating-ui/react": "^0.27.19",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "firebase": "^12.10.0",
     "gsap": "^3.14.2",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.577.0",
@@ -37,6 +37,7 @@
     "tw-animate-css": "^1.4.0"
   },
   "devDependencies": {
+    "concurrently": "^8.2.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

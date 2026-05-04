@@ -10,18 +10,19 @@ function WelcomeBannerContent() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Load extended profile from Firestore to get photoURL and displayName
+  // Load extended profile from backend to get photoURL and name
   useEffect(() => {
     if (!user) return;
-    setLoading(true);
-    getUserProfile(user.uid)
-      .then((p) => setProfile(p))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    getUserProfile(user.id)
+      .then((p) => { if (!cancelled) setProfile(p); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [user]);
 
-  // Use Auth displayName first, then Firestore, then email
+  // Use Auth name first, then Firestore, then email
   const name =
-    user?.displayName ||
+    user?.name ||
     profile?.displayName ||
     user?.email?.split("@")[0] ||
     "there";

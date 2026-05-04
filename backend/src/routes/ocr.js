@@ -1,0 +1,415 @@
+import express from "express";
+import multer from "multer";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+
+const router = express.Router();
+
+const upload = multer({ storage: multer.memoryStorage() });
+
+const IMAGE_EXTENSIONS = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".bmp",
+  ".tif",
+  ".tiff",
+  ".webp",
+]);
+
+const JS_FALLBACK_DEFAULT_LANG = "ara+eng";
+
+let cachedWorker = null;
+let workerLang = "";
+let workerCreating = null;
+
+async function getOrCreateTessWorker(lang) {
+  if (cachedWorker && workerLang === lang) {
+    return cachedWorker;
+  }
+
+  if (workerCreating) {
+    return workerCreating;
+  }
+
+  if (cachedWorker) {
+    try {
+      await cachedWorker.terminate();
+    } catch {
+      // ignore
+    }
+    cachedWorker = null;
+  }
+
+  workerCreating = (async () => {
+    const Tesseract = await import("tesseract.js");
+    const worker = await Tesseract.createWorker(lang, 1, {
+      logger: () => undefined,
+      cachePath: path.join(os.tmpdir(), "tess-data"),
+      gzip: false,
+    });
+
+    if (typeof worker.setParameters === "function") {
+      await worker.setParameters({
+        tessedit_pageseg_mode: "3",
+      });
+    }
+
+    cachedWorker = worker;
+    workerLang = lang;
+    return cachedWorker;
+  })();
+
+  try {
+    const worker = await workerCreating;
+    return worker;
+  } finally {
+    workerCreating = null;
+  }
+}
+
+function normalizeRemoteEndpoint() {
+  const base = (process.env.OCR_SERVICE_URL || "").trim();
+  if (!base) return "";
+
+  const endpoint = (process.env.OCR_SERVICE_ENDPOINT || "/ocr").trim();
+  const safeBase = base.replace(/\/+$/, "");
+  const safeEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  return `${safeBase}${safeEndpoint}`;
+}
+
+async function runRemoteOcr(buffer, fileName, timeoutMs) {
+  const endpoint = normalizeRemoteEndpoint();
+  if (!endpoint) return null;
+
+  const formData = new FormData();
+  const blob = new Blob([buffer]);
+  formData.append("file", blob, fileName || "upload.bin");
+
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      body: formData,
+      signal: controller.signal,
+      cache: "no-store",
+    });
+
+    const rawText = await response.text();
+    let parsed = null;
+
+    try {
+      parsed = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      parsed = null;
+    }
+
+    const remoteSuccess = Boolean(parsed?.success);
+    const parsedDetail =
+      parsed && parsed.detail && typeof parsed.detail === "object"
+        ? parsed.detail
+        : null;
+    const remoteError =
+      parsed?.error || (parsedDetail?.error ?? "");
+    const remotePayload =
+      parsed && parsed.data && typeof parsed.data === "object"
+        ? parsed.data
+        : parsed;
+
+    if (!response.ok || !remoteSuccess || !remotePayload) {
+      return {
+        ok: false,
+        error: remoteError || `Remote OCR failed with status ${response.status}`,
+        endpoint,
+        status: response.status,
+        details: parsed || rawText,
+      };
+    }
+
+    return { ok: true, payload: remotePayload, endpoint };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Remote OCR failed";
+    return { ok: false, error: message, endpoint };
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
+
+function resolvePythonCandidates() {
+  const candidates = [
+    process.env.OCR_PYTHON_PATH,
+    path.join(process.cwd(), ".venv", "Scripts", "python.exe"),
+    path.join(process.cwd(), ".venv", "bin", "python"),
+    "python3",
+    "python",
+  ].filter((item) => Boolean(item && String(item).trim()));
+
+  return [...new Set(candidates)];
+}
+
+function resolveScriptPath() {
+  if (process.env.OCR_SCRIPT_PATH) {
+    return process.env.OCR_SCRIPT_PATH;
+  }
+  return path.resolve(process.cwd(), "..", "scripts", "ocr_runner.py");
+}
+
+function runPythonOcr(pythonPath, scriptPath, filePath, timeoutMs) {
+  return new Promise((resolve) => {
+    let timedOut = false;
+    let spawnError = "";
+    const child = spawn(pythonPath, [scriptPath, filePath], {
+      cwd: process.cwd(),
+      shell: false,
+      windowsHide: true,
+      env: { ...process.env, PYTHONUNBUFFERED: "1" },
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    const timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, timeoutMs);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timeoutHandle);
+      resolve({
+        code,
+        stdout,
+        stderr,
+        command: pythonPath,
+        timedOut,
+        spawnError: spawnError || undefined,
+      });
+    });
+
+    child.on("error", (error) => {
+      spawnError = error.message;
+      stderr += error.message;
+    });
+  });
+}
+
+function parseLastJsonLine(stdout) {
+  const lines = stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    try {
+      return JSON.parse(lines[i]);
+    } catch {
+      // keep scanning
+    }
+  }
+
+  return null;
+}
+
+function shorten(text, max = 700) {
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+async function runJsOcrFallback(buffer, fileExt) {
+  if (!IMAGE_EXTENSIONS.has(fileExt)) return null;
+
+  const tesseractLang =
+    (process.env.OCR_JS_LANGS || JS_FALLBACK_DEFAULT_LANG).trim() ||
+    JS_FALLBACK_DEFAULT_LANG;
+
+  const worker = await getOrCreateTessWorker(tesseractLang);
+  const result = await worker.recognize(buffer);
+  const text = String(result?.data?.text || "").trim();
+
+  return {
+    success: true,
+    engine: "tesseract.js",
+    device: "cpu",
+    text,
+    pages: [text],
+    transport: "js_fallback",
+  };
+}
+
+router.post("/", upload.single("file"), async (req, res) => {
+  const contentType = req.headers["content-type"] || "";
+  if (
+    !String(contentType).includes("multipart/form-data") &&
+    !String(contentType).includes("application/x-www-form-urlencoded")
+  ) {
+    return res.status(415).json({
+      success: false,
+      error: "Invalid Content-Type. Use multipart/form-data and include a 'file' field.",
+    });
+  }
+
+  const uploaded = req.file;
+  if (!uploaded) {
+    return res.status(400).json({ success: false, error: "'file' is required" });
+  }
+
+  const fileExt = path.extname(uploaded.originalname || "").toLowerCase() || ".bin";
+  const defaultTimeoutMs = 300000;
+  const timeoutMs = Number(process.env.OCR_PROCESS_TIMEOUT_MS || defaultTimeoutMs);
+
+  const localFallbackEnabled = (process.env.OCR_LOCAL_FALLBACK || "1") !== "0";
+  const jsFallbackEnabled = (process.env.OCR_JS_FALLBACK || "1") !== "0";
+  const isImageFile = IMAGE_EXTENSIONS.has(fileExt);
+
+  try {
+    const remoteResult = await runRemoteOcr(
+      uploaded.buffer,
+      uploaded.originalname,
+      timeoutMs,
+    );
+
+    if (remoteResult?.ok) {
+      return res.json({
+        success: true,
+        data: { ...remoteResult.payload, transport: "remote_ocr_service" },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (isImageFile && jsFallbackEnabled) {
+      try {
+        const jsPayload = await runJsOcrFallback(uploaded.buffer, fileExt);
+        if (jsPayload) {
+          return res.json({
+            success: true,
+            data: jsPayload,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      } catch {
+        // fall through to python
+      }
+    }
+
+    if (localFallbackEnabled) {
+      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ocr-upload-"));
+      const tempFilePath = path.join(tempDir, `input${fileExt}`);
+
+      try {
+        await fs.writeFile(tempFilePath, uploaded.buffer);
+
+        const scriptPath = resolveScriptPath();
+        if (!existsSync(scriptPath)) {
+          if (!isImageFile || !jsFallbackEnabled) {
+            return res.status(500).json({
+              success: false,
+              error: `OCR script not found at ${scriptPath}`,
+            });
+          }
+        } else {
+          const candidates = resolvePythonCandidates();
+          const attempts = [];
+
+          for (const candidate of candidates) {
+            const result = await runPythonOcr(
+              candidate,
+              scriptPath,
+              tempFilePath,
+              timeoutMs,
+            );
+
+            const payload = parseLastJsonLine(result.stdout);
+            const payloadError =
+              payload && typeof payload.error === "string" ? payload.error : "";
+
+            attempts.push({
+              command: result.command,
+              code: result.code,
+              timedOut: result.timedOut,
+              spawnError: result.spawnError,
+              stderr: shorten(result.stderr),
+              payloadError: payloadError || undefined,
+            });
+
+            if (result.code === 0 && payload && !payload.error) {
+              return res.json({
+                success: true,
+                data: payload,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          }
+
+          const firstUsefulAttempt = attempts.find((item) =>
+            Boolean(item.payloadError || item.stderr || item.spawnError),
+          );
+          const rawError =
+            firstUsefulAttempt?.payloadError ||
+            firstUsefulAttempt?.stderr ||
+            firstUsefulAttempt?.spawnError ||
+            "OCR failed";
+
+          const missingModuleMatch = rawError.match(/No module named ['"]([^'"]+)['"]/);
+          const isPythonMissing = attempts.every(
+            (item) =>
+              String(item.spawnError || "").includes("ENOENT") ||
+              String(item.stderr || "").includes("not recognized") ||
+              String(item.stderr || "").includes("No such file or directory"),
+          );
+
+          let errorMessage = `OCR failed: ${rawError}`;
+          if (isPythonMissing) {
+            errorMessage =
+              "Python executable not found. Set OCR_PYTHON_PATH or install Python.";
+          } else if (missingModuleMatch?.[1]) {
+            errorMessage = `Missing Python package '${missingModuleMatch[1]}'.`;
+          }
+
+          return res.status(500).json({
+            success: false,
+            error: errorMessage,
+            remoteOcr:
+              remoteResult && !remoteResult.ok
+                ? { endpoint: remoteResult.endpoint, error: remoteResult.error }
+                : undefined,
+            attempts,
+            hint: "Install easyocr, opencv-python-headless, pypdfium2, torch in the OCR environment.",
+            timestamp: new Date().toISOString(),
+          });
+        }
+      } finally {
+        await fs.rm(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    const errorDetail =
+      remoteResult && !remoteResult.ok
+        ? `Remote: ${remoteResult.error}. `
+        : "";
+
+    return res.status(503).json({
+      success: false,
+      error: `${errorDetail}No OCR engine available for this file type (${fileExt}).`,
+      hint: "For images, tesseract.js is used. For PDFs, Python OCR is required. Set OCR_SERVICE_URL for a remote OCR service.",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unexpected OCR API error";
+    return res.status(500).json({ success: false, error: message });
+  }
+});
+
+export default router;

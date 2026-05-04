@@ -1,34 +1,46 @@
 import { NextResponse } from "next/server";
-import { auth, db, storage } from "@/app/lib/firebase";
+
+const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 
 /**
  * GET /api/health
- * Check Firebase connection status
+ * Check backend connection status
  */
 export async function GET() {
   try {
+    // Test backend connection
+    let backendStatus = "❌";
+    let backendMessage = "Not connected";
+    try {
+      const res = await fetch(`${BACKEND}/api/health`, { cache: "no-store" });
+      if (res.ok) {
+        backendStatus = "✅";
+        backendMessage = "Connected";
+      } else {
+        backendMessage = `HTTP ${res.status}`;
+      }
+    } catch {
+      backendMessage = "Connection failed";
+    }
+
     const checks = {
-      auth: !!auth ? "✅" : "❌",
-      firestore: !!db ? "✅" : "❌",
-      storage: !!storage ? "✅" : "❌",
+      backend: backendStatus,
       timestamp: new Date().toISOString(),
     };
 
-    const allHealthy =
-      Object.values(checks).filter((v) => v === "❌").length === 0;
+    const allHealthy = backendStatus === "✅";
 
     return NextResponse.json({
       success: allHealthy,
       status: allHealthy ? "healthy" : "degraded",
       checks: {
-        "Firebase Auth": checks.auth,
-        "Firestore Database": checks.firestore,
-        "Cloud Storage": checks.storage,
+        "Backend API": checks.backend,
+        "Backend Status": backendMessage,
         "Last Check": checks.timestamp,
       },
       message: allHealthy
-        ? "✅ All Firebase services are connected"
-        : "⚠️ Some Firebase services may not be available",
+        ? "✅ Backend is connected and running"
+        : "⚠️ Backend may not be available",
     });
   } catch (error: unknown) {
     const errorMessage =

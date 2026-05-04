@@ -8,7 +8,7 @@ export async function PATCH(
     {
       success: false,
       error:
-        "Manual user update is disabled. Users are synced from real auth accounts.",
+        "Use the backend API directly for user updates.",
     },
     { status: 405 },
   );
@@ -22,7 +22,7 @@ export async function DELETE(
     {
       success: false,
       error:
-        "Manual user deletion is disabled. Delete accounts from Firebase Auth Admin.",
+        "Use the backend API directly for user deletion.",
     },
     { status: 405 },
   );

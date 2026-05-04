@@ -46,7 +46,7 @@ const NAV_ITEMS = [
   },
 ];
 
-export default function Navbar() {
+const Navbar = React.memo(function Navbar() {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -267,4 +267,6 @@ export default function Navbar() {
       </nav>
     </div>
   );
-}
+});
+
+export default Navbar;

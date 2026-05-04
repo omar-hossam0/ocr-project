@@ -22,7 +22,6 @@ export default function LoginPage() {
     loading: authLoading,
     signIn,
     signUp,
-    signInWithGoogle,
     sendResetPasswordEmail,
   } = useAuth();
   const { showToast } = useToast();
@@ -61,29 +60,6 @@ export default function LoginPage() {
     }
   };
 
-  const handleGoogleAuth = async () => {
-    if (loading) return;
-
-    setLoading(true);
-    setError("");
-    try {
-      await signInWithGoogle();
-      showToast(
-        isSignUp
-          ? "Account created with Google! Welcome to DocuMind AI."
-          : "Welcome back!",
-        "success",
-      );
-      router.replace("/dashboard");
-    } catch (err) {
-      const errMessage =
-        err instanceof Error ? err.message : "Google sign-in failed.";
-      setError(errMessage);
-      showToast(errMessage, "error");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleResetPassword = async () => {
     if (loading) return;
@@ -328,49 +304,6 @@ export default function LoginPage() {
               </AnimatePresence>
             </form>
 
-            <div className="mt-5 space-y-3">
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-white/10" />
-                </div>
-                <div className="relative flex justify-center text-xs">
-                  <span className="px-2 bg-[#0d0f1a] text-gray-500">
-                    Or continue with
-                  </span>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => void handleGoogleAuth()}
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-2 bg-white hover:bg-[#f8f9fa] border border-[#dadce0] text-[#3c4043] py-3 rounded-xl text-xs font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    fill="#EA4335"
-                    d="M12 11v3.5h4.94c-.21 1.13-.86 2.09-1.83 2.74l2.96 2.3C19.8 17.93 20.75 15.63 20.75 13c0-.69-.06-1.35-.17-2H12z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 21c2.43 0 4.47-.8 5.96-2.17l-2.96-2.3c-.82.55-1.88.87-3 .87-2.31 0-4.27-1.56-4.97-3.65l-3.06 2.36C5.45 18.98 8.47 21 12 21z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M7.03 13.75A4.98 4.98 0 0 1 6.75 12c0-.61.1-1.21.28-1.75L3.97 7.89A9 9 0 0 0 3 12c0 1.45.35 2.82.97 4.11l3.06-2.36z"
-                  />
-                  <path
-                    fill="#4285F4"
-                    d="M12 6.6c1.32 0 2.5.45 3.43 1.34l2.57-2.57C16.46 3.9 14.43 3 12 3 8.47 3 5.45 5.02 3.97 7.89l3.06 2.36C7.73 8.16 9.69 6.6 12 6.6z"
-                  />
-                </svg>
-                {loading
-                  ? "Please wait..."
-                  : isSignUp
-                    ? "Sign up with Google"
-                    : "Sign in with Google"}
-              </button>
-            </div>
           </div>
         </div>
       </motion.div>

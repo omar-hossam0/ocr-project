@@ -1,25 +1,19 @@
 "use client";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, useMemo, useCallback } from "react";
 import React from "react";
-import {
-  User,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut as firebaseSignOut,
-  onAuthStateChanged,
-  setPersistence,
-  browserLocalPersistence,
-  updateProfile as firebaseUpdateProfile,
-  updatePassword as firebaseUpdatePassword,
-  signInWithPopup,
-  GoogleAuthProvider,
-  sendPasswordResetEmail,
-} from "firebase/auth";
-import { auth } from "./firebase";
-import { saveUserProfile } from "./firestore";
+
+const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  photoURL?: string;
+}
 
 interface AuthContextType {
-  user: User | null;
+  user: AuthUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (
@@ -37,102 +31,75 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem("token");
+}
+
+function setToken(token: string | null) {
+  if (typeof window === "undefined") return;
+  if (token) {
+    window.localStorage.setItem("token", token);
+  } else {
+    window.localStorage.removeItem("token");
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
-  const syncCacheRef = React.useRef<Record<string, number>>({});
 
-  const syncAuthenticatedUser = async (accountUser: User, force = false) => {
-    const now = Date.now();
-    const lastSync = syncCacheRef.current[accountUser.uid] || 0;
-    if (!force && now - lastSync < 2 * 60 * 1000) {
-      return;
-    }
-
-    const fallbackName = accountUser.email
-      ? accountUser.email.split("@")[0]
-      : "User";
-
-    try {
-      await saveUserProfile(accountUser.uid, {
-        uid: accountUser.uid,
-        email: accountUser.email || "",
-        displayName: accountUser.displayName || fallbackName,
-        photoURL: accountUser.photoURL || undefined,
-        role: "Viewer",
-        lastLoginAt: new Date(),
-      });
-      syncCacheRef.current[accountUser.uid] = now;
-    } catch {
-      // Keep auth flow fast even if profile sync fails temporarily.
-    }
-  };
-
+  // Load user on mount if token exists
   useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
-    let cancelled = false;
-
-    const initAuth = async () => {
-      try {
-        await setPersistence(auth, browserLocalPersistence);
-      } catch {
-        // Keep default persistence if local persistence is unavailable.
-      }
-
-      if (cancelled) {
+    const init = async () => {
+      const token = getToken();
+      if (!token) {
+        setLoading(false);
         return;
       }
-
-      // Listen for auth changes after persistence is configured.
-      unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-        setUser(currentUser);
-        setLoading(false);
-
-        if (currentUser) {
-          void syncAuthenticatedUser(currentUser);
+      try {
+        const res = await fetch(`${BACKEND}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const json = await res.json();
+        if (res.ok && json.success) {
+          setUser(json.user);
+        } else {
+          // Invalid token, clear it
+          setToken(null);
         }
-      });
-    };
-
-    void initAuth();
-
-    return () => {
-      cancelled = true;
-      if (unsubscribe) {
-        unsubscribe();
+      } catch {
+        // Network error, keep token for retry later
+      } finally {
+        setLoading(false);
       }
     };
+    void init();
   }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail || !password) {
       throw new Error("Email and password are required");
     }
-    try {
-      const credential = await signInWithEmailAndPassword(
-        auth,
-        normalizedEmail,
-        password,
-      );
-      setUser(credential.user);
-      void syncAuthenticatedUser(credential.user, true);
-    } catch (error: unknown) {
-      const authError = error as { code?: string; message?: string };
-      if (authError.code === "auth/user-not-found") {
-        throw new Error("No account found with this email");
-      } else if (authError.code === "auth/wrong-password") {
-        throw new Error("Incorrect password");
-      } else if (authError.code === "auth/invalid-email") {
-        throw new Error("Invalid email address");
-      } else if (authError.code === "auth/user-disabled") {
-        throw new Error("This account has been disabled");
+    const res = await fetch(`${BACKEND}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: normalizedEmail, password }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      const msg = json?.error || "Login failed";
+      if (msg.toLowerCase().includes("invalid")) {
+        throw new Error("Invalid email or password");
       }
-      throw error;
+      throw new Error(msg);
     }
-  };
+    setToken(json.token);
+    setUser(json.user);
+  }, []);
 
-  const signUp = async (
+  const signUp = useCallback(async (
     email: string,
     password: string,
     displayName?: string,
@@ -149,59 +116,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (password.length < 6) {
       throw new Error("Password must be at least 6 characters");
     }
-    try {
-      const credential = await createUserWithEmailAndPassword(
-        auth,
-        normalizedEmail,
+
+    // Note: Backend sign-up endpoint needs to be implemented
+    const res = await fetch(`${BACKEND}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: normalizedEmail,
         password,
-      );
-
-      if (normalizedName) {
-        await firebaseUpdateProfile(credential.user, {
-          displayName: normalizedName,
-        });
-        await credential.user.reload();
-      }
-
-      const syncedUser = auth.currentUser || credential.user;
-      setUser(syncedUser);
-      void syncAuthenticatedUser(syncedUser, true);
-    } catch (error: unknown) {
-      const authError = error as { code?: string; message?: string };
-      if (authError.code === "auth/email-already-in-use") {
+        name: normalizedName || normalizedEmail.split("@")[0],
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      const msg = json?.error || "Registration failed";
+      if (msg.toLowerCase().includes("already")) {
         throw new Error("This email is already registered");
-      } else if (authError.code === "auth/weak-password") {
-        throw new Error("Password is too weak. Use at least 6 characters");
-      } else if (authError.code === "auth/invalid-email") {
-        throw new Error("Invalid email address");
       }
-      throw error;
+      throw new Error(msg);
     }
-  };
+    setToken(json.token);
+    setUser(json.user);
+  }, []);
 
-  const signInWithGoogle = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
-      const result = await signInWithPopup(auth, provider);
-      setUser(result.user);
-      void syncAuthenticatedUser(result.user, true);
-    } catch (error: unknown) {
-      const authError = error as { code?: string; message?: string };
-      if (authError.code === "auth/popup-closed-by-user") {
-        throw new Error("Sign-in popup was closed");
-      } else if (authError.code === "auth/popup-blocked") {
-        throw new Error("Sign-in popup was blocked. Please enable popups.");
-      } else if (
-        authError.code === "auth/operation-not-supported-in-this-environment"
-      ) {
-        throw new Error("Google Sign-in is not supported in this environment");
-      }
-      throw error;
-    }
-  };
+  const signInWithGoogle = useCallback(async () => {
+    // Google OAuth requires additional backend setup
+    // For now, show a message that it's not supported
+    throw new Error("Google Sign-in is not supported in this environment. Please use email/password.");
+  }, []);
 
-  const sendResetPasswordEmail = async (email: string) => {
+  const sendResetPasswordEmail = useCallback(async (email: string) => {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail) {
       throw new Error("Please enter your email first");
@@ -209,35 +153,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       throw new Error("Please enter a valid email address");
     }
-    await sendPasswordResetEmail(auth, normalizedEmail);
-  };
+    // Backend password reset endpoint needs to be implemented
+    throw new Error("Password reset is not yet implemented. Please contact an admin.");
+  }, []);
 
-  const signOut = async () => {
-    await firebaseSignOut(auth);
-  };
+  const signOut = useCallback(async () => {
+    setToken(null);
+    setUser(null);
+  }, []);
 
-  const updateUserProfile = async (displayName: string, photoURL?: string) => {
-    if (!auth.currentUser) throw new Error("No user logged in");
-    const updates: { displayName: string; photoURL?: string } = { displayName };
-    if (photoURL !== undefined) updates.photoURL = photoURL;
-    await firebaseUpdateProfile(auth.currentUser, updates);
-    // Reload so the context gets the fresh user object
-    await auth.currentUser.reload();
-    setUser({ ...auth.currentUser });
-  };
+  const updateUserProfile = useCallback(async (displayName: string, photoURL?: string) => {
+    const token = getToken();
+    if (!token) throw new Error("No user logged in");
 
-  const updateUserPassword = async (newPassword: string) => {
-    if (!auth.currentUser) throw new Error("No user logged in");
-    await firebaseUpdatePassword(auth.currentUser, newPassword);
-  };
+    const res = await fetch(`${BACKEND}/api/settings/users/me`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ name: displayName, photoURL }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json?.error || "Failed to update profile");
+    }
+    setUser((prev) => (prev ? { ...prev, name: displayName, photoURL } : null));
+  }, []);
 
-  const refreshUser = async () => {
-    if (!auth.currentUser) return;
-    await auth.currentUser.reload();
-    setUser({ ...auth.currentUser });
-  };
+  const updateUserPassword = useCallback(async (newPassword: string) => {
+    const token = getToken();
+    if (!token) throw new Error("No user logged in");
+    if (!newPassword || newPassword.length < 6) {
+      throw new Error("Password must be at least 6 characters");
+    }
+    // Backend password change endpoint needs to be implemented
+    throw new Error("Password change is not yet implemented. Please contact an admin.");
+  }, []);
 
-  const value = {
+  const refreshUser = useCallback(async () => {
+    const token = getToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${BACKEND}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setUser(json.user);
+      }
+    } catch {
+      // Ignore network errors
+    }
+  }, []);
+
+  const value = useMemo(() => ({
     user,
     loading,
     signIn,
@@ -248,7 +218,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     updateUserProfile,
     updateUserPassword,
     refreshUser,
-  };
+  }), [user, loading, signIn, signUp, signInWithGoogle, sendResetPasswordEmail, signOut, updateUserProfile, updateUserPassword, refreshUser]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
