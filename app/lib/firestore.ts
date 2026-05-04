@@ -5,7 +5,9 @@
 const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 
 function authHeaders(): Record<string, string> {
-  const token = (typeof window !== "undefined" && window.localStorage.getItem("token")) || undefined;
+  const token =
+    (typeof window !== "undefined" && window.localStorage.getItem("token")) ||
+    undefined;
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -67,11 +69,17 @@ const FILES_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
  * ✅ Get all files with caching
  */
 export async function getAllFiles(forceFresh: boolean = false) {
-  if (!forceFresh && filesCache && Date.now() - filesCache.timestamp < FILES_CACHE_TTL) {
+  if (
+    !forceFresh &&
+    filesCache &&
+    Date.now() - filesCache.timestamp < FILES_CACHE_TTL
+  ) {
     return filesCache.data;
   }
   try {
-    const res = await fetch(`${BACKEND}/api/files`, { headers: { ...authHeaders() } });
+    const res = await fetch(`${BACKEND}/api/files`, {
+      headers: { ...authHeaders() },
+    });
     const json = await res.json();
     if (!res.ok) throw new Error(json?.error || "Failed to fetch files");
     const files = json.data || [];
@@ -88,7 +96,9 @@ export async function getAllFiles(forceFresh: boolean = false) {
  */
 export async function getRecentFiles(pageSize: number = 10) {
   try {
-    const res = await fetch(`${BACKEND}/api/files?recent=1&limit=${pageSize}`, { headers: { ...authHeaders() } });
+    const res = await fetch(`${BACKEND}/api/files?recent=1&limit=${pageSize}`, {
+      headers: { ...authHeaders() },
+    });
     const json = await res.json();
     if (!res.ok) throw new Error(json?.error || "Failed to fetch recent files");
     return json.data || [];
@@ -127,7 +137,11 @@ const CACHE_TTL = 5 * 60 * 1000;
 /**
  * ✅ Search files by keyword (name, OCR text, tags) with caching
  */
-export async function searchFiles(keyword: string, limit: number = 100, _forceFresh: boolean = false) {
+export async function searchFiles(
+  keyword: string,
+  limit: number = 100,
+  _forceFresh: boolean = false,
+) {
   // Check cache first (unless forceFresh)
   const cached = searchCache.get(keyword);
   if (!_forceFresh && cached && Date.now() - cached.timestamp < CACHE_TTL) {
@@ -136,7 +150,9 @@ export async function searchFiles(keyword: string, limit: number = 100, _forceFr
 
   try {
     const params = new URLSearchParams({ q: keyword, limit: String(limit) });
-    const res = await fetch(`${BACKEND}/api/search?${params.toString()}`, { headers: { ...authHeaders() } });
+    const res = await fetch(`${BACKEND}/api/search?${params.toString()}`, {
+      headers: { ...authHeaders() },
+    });
     const json = await res.json();
     if (!res.ok) throw new Error(json?.error || "Search failed");
     return json.data || [];
@@ -186,8 +202,15 @@ function buildOcrPreview(ocrText: string, keyword: string, maxLength: number) {
 /**
  * Search files and return compact payload suitable for OCR search UI.
  */
-export async function searchFilesWithPreview(keyword: string, options?: { limit?: number; previewLength?: number; forceFresh?: boolean }): Promise<SearchResultItem[]> {
-  const results = await searchFiles(keyword, options?.limit || 100, options?.forceFresh || false);
+export async function searchFilesWithPreview(
+  keyword: string,
+  options?: { limit?: number; previewLength?: number; forceFresh?: boolean },
+): Promise<SearchResultItem[]> {
+  const results = await searchFiles(
+    keyword,
+    options?.limit || 100,
+    options?.forceFresh || false,
+  );
   const searchTerm = keyword.toLowerCase();
   const previewLength = Math.max(40, options?.previewLength || 120);
 
@@ -205,7 +228,9 @@ export async function searchFilesWithPreview(keyword: string, options?: { limit?
       matchField = "location";
     } else if (documentType.toLowerCase().includes(searchTerm)) {
       matchField = "documentType";
-    } else if (tags.some((tag: string) => tag.toLowerCase().includes(searchTerm))) {
+    } else if (
+      tags.some((tag: string) => tag.toLowerCase().includes(searchTerm))
+    ) {
       matchField = "tags";
     }
 
@@ -227,10 +252,11 @@ export async function getFilesByDepartment(department: string) {
   try {
     const res = await fetch(
       `${BACKEND}/api/files?department=${encodeURIComponent(department)}`,
-      { headers: { ...authHeaders() } }
+      { headers: { ...authHeaders() } },
     );
     const json = await res.json();
-    if (!res.ok) throw new Error(json?.error || "Failed to fetch department files");
+    if (!res.ok)
+      throw new Error(json?.error || "Failed to fetch department files");
     const files = json.data || [];
     console.log(`✅ Retrieved ${files.length} files from ${department}`);
     return files as (FileData & { id: string })[];
@@ -377,7 +403,12 @@ export async function addTrackingLog(log: TrackingLog) {
         fileId: log.fileId,
         userId: log.user,
         userName: log.user,
-        action: log.action === "checked_out" ? "taken" : log.action === "returned" ? "returned" : "moved",
+        action:
+          log.action === "checked_out"
+            ? "taken"
+            : log.action === "returned"
+              ? "returned"
+              : "moved",
         note: "",
       }),
     });
@@ -403,7 +434,8 @@ export async function getTrackingLogs(
       headers: { ...authHeaders() },
     });
     const json = await res.json();
-    if (!res.ok) throw new Error(json?.error || "Failed to fetch tracking logs");
+    if (!res.ok)
+      throw new Error(json?.error || "Failed to fetch tracking logs");
     return (json.data || []) as (TrackingLog & { id: string })[];
   } catch (error: unknown) {
     const errorMessage =
@@ -420,7 +452,8 @@ export async function deleteFileTransaction(transactionId: string) {
       headers: { ...authHeaders() },
     });
     const json = await res.json();
-    if (!res.ok) throw new Error(json?.error || "Failed to delete tracking record");
+    if (!res.ok)
+      throw new Error(json?.error || "Failed to delete tracking record");
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error
@@ -526,7 +559,13 @@ export async function getDailyStats(date?: string) {
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json?.error || "Failed to fetch daily stats");
-    return json.data || { uploads: 0, departments: {}, date: date || new Date().toISOString().split("T")[0] };
+    return (
+      json.data || {
+        uploads: 0,
+        departments: {},
+        date: date || new Date().toISOString().split("T")[0],
+      }
+    );
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Failed to fetch daily stats";
@@ -544,7 +583,8 @@ export async function getAllTimeStats() {
       headers: { ...authHeaders() },
     });
     const json = await res.json();
-    if (!res.ok) throw new Error(json?.error || "Failed to fetch all-time stats");
+    if (!res.ok)
+      throw new Error(json?.error || "Failed to fetch all-time stats");
     return json.data || { totalUploads: 0, departmentBreakdown: {} };
   } catch (error: unknown) {
     const errorMessage =
@@ -591,7 +631,8 @@ export async function getUserProfile(
 
     if (!res.ok) {
       const errMsg = (json && json.error) || res.statusText || "Failed to fetch profile";
-      throw new Error(errMsg);
+      console.warn("Failed to fetch user profile:", res.status, errMsg);
+      return null;
     }
 
     return (json && json.data) || null;
@@ -958,5 +999,6 @@ export async function updateSystemSettings(payload: Partial<SystemSettings>) {
     body: JSON.stringify(payload),
   });
   const json = await res.json();
-  if (!res.ok) throw new Error(json?.error || "Failed to update system settings");
+  if (!res.ok)
+    throw new Error(json?.error || "Failed to update system settings");
 }
