@@ -81,6 +81,71 @@ function normalizeRemoteEndpoint() {
   return `${safeBase}${safeEndpoint}`;
 }
 
+// Local OCR server endpoint (for fast pre-loaded EasyOCR)
+const LOCAL_OCR_SERVER = "http://localhost:5000";
+
+async function runLocalOcrServer(buffer, fileName, timeoutMs) {
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    // Determine file type from extension
+    const isPdf = (fileName || "").toLowerCase().endsWith('.pdf');
+    
+    // Convert buffer to base64
+    const base64Data = buffer.toString('base64');
+    
+    const requestBody = JSON.stringify({
+      file: base64Data,
+      type: isPdf ? 'pdf' : 'image',
+      filename: fileName || 'upload.bin'
+    });
+
+    const response = await fetch(LOCAL_OCR_SERVER, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: requestBody,
+      signal: controller.signal,
+    });
+
+    const rawText = await response.text();
+    let parsed = null;
+
+    try {
+      parsed = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      parsed = null;
+    }
+
+    if (!response.ok || !parsed?.success) {
+      return {
+        ok: false,
+        error: parsed?.error || `Local OCR server failed with status ${response.status}`,
+        endpoint: LOCAL_OCR_SERVER,
+        status: response.status,
+        details: parsed || rawText,
+      };
+    }
+
+    // Transform local OCR response to match expected format
+    const payload = {
+      text: parsed.text || "",
+      engine: parsed.engine || "easyocr",
+      device: parsed.device || "cpu",
+      pages: parsed.text ? [parsed.text] : [],
+      transport: "local_ocr_server",
+      processing_time_ms: parsed.processing_time_ms,
+    };
+
+    return { ok: true, payload, endpoint: LOCAL_OCR_SERVER };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Local OCR server failed";
+    return { ok: false, error: message, endpoint: LOCAL_OCR_SERVER };
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+}
+
 async function runRemoteOcr(buffer, fileName, timeoutMs) {
   const endpoint = normalizeRemoteEndpoint();
   if (!endpoint) return null;
@@ -274,6 +339,22 @@ router.post("/", upload.single("file"), async (req, res) => {
   const isImageFile = IMAGE_EXTENSIONS.has(fileExt);
 
   try {
+    // 1. Try local OCR server first (fastest - pre-loaded models)
+    const localResult = await runLocalOcrServer(
+      uploaded.buffer,
+      uploaded.originalname,
+      Math.min(timeoutMs, 30000), // 30s timeout for local
+    );
+
+    if (localResult?.ok) {
+      return res.json({
+        success: true,
+        data: { ...localResult.payload, transport: "local_ocr_server" },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // 2. Try remote OCR service if configured
     const remoteResult = await runRemoteOcr(
       uploaded.buffer,
       uploaded.originalname,
@@ -288,6 +369,7 @@ router.post("/", upload.single("file"), async (req, res) => {
       });
     }
 
+    // 3. Try client-side fallback for images
     if (isImageFile && jsFallbackEnabled) {
       try {
         const jsPayload = await runJsOcrFallback(uploaded.buffer, fileExt);

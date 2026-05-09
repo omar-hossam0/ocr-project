@@ -1,0 +1,23 @@
+# OCR Dependencies for Custom Arabic Model
+# Install with: pip install -r requirements_ocr.txt
+
+# Core OCR engine
+easyocr>=1.7.0
+
+# Image processing
+opencv-python-headless>=4.8.0
+Pillow>=10.0.0
+
+# PDF processing
+pypdfium2>=4.0.0
+
+# Deep learning backend (CPU version - use torch with CUDA for GPU)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Optional: For GPU support, install CUDA-enabled torch:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
+# Arabic text processing (already in model folder, but listed for reference)
+# arabic-reshaper>=3.0.0
+# python-bidi>=0.4.2

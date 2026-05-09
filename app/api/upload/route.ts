@@ -2,16 +2,36 @@ import { NextResponse } from 'next/server';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
 
-const s3Client = new S3Client({
-  region: process.env.AWS_REGION!,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-});
+// Check if S3 is configured
+const isS3Configured = Boolean(
+  process.env.AWS_REGION &&
+  process.env.AWS_ACCESS_KEY_ID &&
+  process.env.AWS_SECRET_ACCESS_KEY &&
+  process.env.S3_BUCKET
+);
+
+let s3Client: S3Client | null = null;
+
+if (isS3Configured) {
+  s3Client = new S3Client({
+    region: process.env.AWS_REGION!,
+    credentials: {
+      accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+    },
+  });
+}
 
 export async function POST(request: Request) {
   try {
+    // Check if S3 is configured
+    if (!isS3Configured || !s3Client) {
+      return NextResponse.json({ 
+        error: 'S3 storage not configured. File metadata will be saved without storage URL.',
+        storageUrl: null 
+      }, { status: 200 }); // Return 200 to allow continuing without S3
+    }
+
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
 
@@ -39,6 +59,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ storageUrl });
   } catch (error) {
     console.error('S3 Upload Error:', error);
-    return NextResponse.json({ error: 'Failed to upload to S3' }, { status: 500 });
+    // Return success with null storageUrl instead of error
+    return NextResponse.json({ 
+      storageUrl: null,
+      warning: 'File uploaded but S3 storage failed. Metadata saved without storage URL.'
+    }, { status: 200 });
   }
 }

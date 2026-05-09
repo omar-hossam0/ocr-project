@@ -101,6 +101,7 @@ export default function UploadPage() {
   const [cameraLoading, setCameraLoading] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [ocrEngineInfo, setOcrEngineInfo] = useState("");
+  const [ocrProgress, setOcrProgress] = useState(0);
   const [backgroundFileId, setBackgroundFileId] = useState<string | null>(null);
   const [backgroundStatus, setBackgroundStatus] = useState<FileStatus | "idle">(
     "idle",
@@ -526,6 +527,7 @@ export default function UploadPage() {
       try {
         // ── Step 1: Run OCR FIRST (fast with cached tesseract.js) ──
         setOcrEngineInfo("running OCR model...");
+        setOcrProgress(10);
         let ocrText = "";
         let ocrEngine = "";
         let ocrDevice = "cpu";
@@ -533,6 +535,8 @@ export default function UploadPage() {
         try {
           const formData = new FormData();
           formData.append("file", targetFile);
+          
+          setOcrProgress(20);
           const ocrResponse = await withTimeout(
             fetch("/api/ocr", {
               method: "POST",
@@ -542,22 +546,28 @@ export default function UploadPage() {
             OCR_CLIENT_TIMEOUT_MS,
             "OCR processing",
           );
+          
+          setOcrProgress(70);
           const { json: ocrJson, rawText } = await safeReadJson<{
             success?: boolean;
             data?: { text?: string; engine?: string; device?: string };
             error?: string;
           }>(ocrResponse);
+          
           if (ocrResponse.ok && ocrJson?.success) {
             ocrText = (ocrJson?.data?.text || "").trim();
             ocrEngine = ocrJson?.data?.engine || "tesseract.js";
             ocrDevice = ocrJson?.data?.device || "cpu";
+            setOcrProgress(90);
           } else {
             console.warn("OCR returned error:", ocrJson?.error || rawText);
+            setOcrProgress(0);
           }
         } catch (ocrErr) {
           const ocrErrMsg = ocrErr instanceof Error ? ocrErr.message : "OCR failed";
           console.warn("OCR failed:", ocrErrMsg);
           setOcrEngineInfo("OCR unavailable");
+          setOcrProgress(0);
         }
 
         // If server OCR didn't return text (common on Vercel), try client-side OCR for images.
@@ -581,11 +591,13 @@ export default function UploadPage() {
         if (ocrText) {
           setOcrResult(ocrText);
           setOcrEngineInfo(`${ocrEngine} • ${ocrDevice}`);
+          setOcrProgress(100);
           setProcessing(false); // Stop the spinner immediately
           showToast("OCR completed successfully!", "success");
         } else {
           setOcrResult("(No text detected by OCR)");
           setOcrEngineInfo(ocrEngine ? `${ocrEngine} • no text found` : "OCR unavailable");
+          setOcrProgress(0);
           setProcessing(false);
           showToast("OCR failed on server; no text detected", "error");
         }
@@ -604,13 +616,16 @@ export default function UploadPage() {
 
           const uploadJson = await uploadResponse.json();
 
-          if (!uploadResponse.ok) {
-            throw new Error(uploadJson.error || "Failed to upload to S3");
+          // S3 is optional - continue even if it fails
+          if (uploadResponse.ok && uploadJson.storageUrl) {
+            storageUrl = uploadJson.storageUrl;
+          } else {
+            console.warn("S3 upload skipped or failed:", uploadJson.warning || uploadJson.error);
+            // Continue without storage URL
           }
-
-          storageUrl = uploadJson.storageUrl;
         } catch (storageErr) {
-          console.warn("Storage upload failed (file still saved via metadata):", storageErr);
+          console.warn("Storage upload failed (continuing without S3):", storageErr);
+          // Continue without storage URL
         }
 
         // Save file metadata to Firestore
@@ -1083,6 +1098,22 @@ export default function UploadPage() {
                 )}
               </button>
             </div>
+            
+            {/* Progress Bar */}
+            {processing && ocrProgress > 0 && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
+                  <span>Processing...</span>
+                  <span>{ocrProgress}%</span>
+                </div>
+                <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
+                  <div 
+                    className="bg-sky-500 h-full transition-all duration-300 ease-out"
+                    style={{ width: `${ocrProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

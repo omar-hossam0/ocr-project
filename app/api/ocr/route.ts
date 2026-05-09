@@ -72,18 +72,26 @@ async function getOrCreateTessWorker(lang: string): Promise<TessWorker> {
 
     const Tesseract = await import("tesseract.js");
 
+    // Use faster configuration for browser OCR
     const worker = await Tesseract.createWorker(lang, 1, {
-      logger: (m: { status: string; progress: number }) => console.log(`🔍 [Tesseract Progress] ${m.status}: ${Math.round(m.progress * 100)}%`),
+      logger: (m: { status: string; progress: number }) => {
+        // Only log significant progress to reduce noise
+        if (m.progress === 0 || m.progress === 1 || m.progress % 0.2 < 0.01) {
+          console.log(`🔍 [Tesseract] ${m.status}: ${Math.round(m.progress * 100)}%`);
+        }
+      },
       cachePath: path.join(os.tmpdir(), 'tess-data'),
       gzip: false,
-      errorHandler: (err: Error) => console.error("❌ [Tesseract Worker Error]", err),
-      // Force Node.js to use the local worker/core instead of trying to fetch from CDN if possible
-      // though tesseract.js usually handles this, sometimes Vercel needs explicit paths.
+      errorHandler: (err: Error) => console.error("❌ [Tesseract Error]", err),
+      // Optimize for speed
+      corePath: undefined, // Let tesseract.js use default optimized path
     });
 
+    // Optimize OCR parameters for speed
     if (typeof (worker as { setParameters?: unknown }).setParameters === 'function') {
       await (worker as unknown as { setParameters: (p: Record<string, unknown>) => Promise<unknown> }).setParameters({
-        tessedit_pageseg_mode: 3,
+        tessedit_pageseg_mode: 3, // Fully automatic page segmentation
+        tessedit_ocr_engine_mode: 2, // LSTM only (faster)
       });
     }
 
@@ -109,6 +117,76 @@ function normalizeRemoteEndpoint() {
   const safeBase = base.replace(/\/+$/, "");
   const safeEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
   return `${safeBase}${safeEndpoint}`;
+}
+
+// Local OCR server for fast processing (pre-loaded EasyOCR)
+const LOCAL_OCR_SERVER = "http://localhost:5000";
+
+async function runLocalOcrServer(
+  uploaded: File,
+  timeoutMs: number,
+): Promise<RemoteOcrResult | null> {
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    // Determine file type from extension
+    const fileName = uploaded.name || "upload.bin";
+    const isPdf = fileName.toLowerCase().endsWith('.pdf');
+
+    // Convert file to base64
+    const arrayBuffer = await uploaded.arrayBuffer();
+    const base64Data = Buffer.from(arrayBuffer).toString('base64');
+
+    const requestBody = JSON.stringify({
+      file: base64Data,
+      type: isPdf ? 'pdf' : 'image',
+      filename: fileName,
+    });
+
+    const response = await fetch(LOCAL_OCR_SERVER, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: requestBody,
+      signal: controller.signal,
+    });
+
+    const rawText = await response.text();
+    let parsed: Record<string, unknown> | null = null;
+
+    try {
+      parsed = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : null;
+    } catch {
+      parsed = null;
+    }
+
+    if (!response.ok || !parsed?.success) {
+      return {
+        ok: false,
+        error: (parsed?.error as string) || `Local OCR server failed with status ${response.status}`,
+        endpoint: LOCAL_OCR_SERVER,
+        status: response.status,
+        details: parsed || rawText,
+      };
+    }
+
+    // Transform response to match expected format
+    const payload = {
+      text: (parsed.text as string) || "",
+      engine: (parsed.engine as string) || "easyocr",
+      device: (parsed.device as string) || "cpu",
+      pages: parsed.text ? [(parsed.text as string)] : [],
+      transport: "local_ocr_server",
+      processing_time_ms: parsed.processing_time_ms,
+    };
+
+    return { ok: true, payload, endpoint: LOCAL_OCR_SERVER };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Local OCR server failed";
+    return { ok: false, error: errorMessage, endpoint: LOCAL_OCR_SERVER };
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
 }
 
 async function runRemoteOcr(
@@ -368,6 +446,24 @@ export async function POST(request: NextRequest) {
   const isImageFile = IMAGE_EXTENSIONS.has(fileExt);
 
   try {
+    // ── 0. Local OCR server (fastest - pre-loaded EasyOCR models) ──
+    try {
+      const localResult = await runLocalOcrServer(uploaded, Math.min(timeoutMs, 30000));
+      if (localResult?.ok) {
+        return NextResponse.json({
+          success: true,
+          data: {
+            ...localResult.payload,
+            transport: "local_ocr_server",
+          },
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (localError: unknown) {
+      console.log("Local OCR server not available, trying other methods...");
+      // Continue to other methods
+    }
+
     // ── 1. For IMAGE files on Vercel: try tesseract.js FIRST (reliable in serverless) ──
     if (isImageFile && jsFallbackEnabled) {
       try {
