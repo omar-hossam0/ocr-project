@@ -23,7 +23,7 @@ function escapeRegex(value: string) {
 export default function OcrSearchableText({
   text,
   emptyMessage = "(No text detected by OCR)",
-  textContainerClassName = "bg-white/5 rounded-xl p-4 text-sm text-gray-300 leading-relaxed max-h-80 overflow-y-auto whitespace-pre-wrap",
+  textContainerClassName = "bg-white/5 rounded-xl p-4 text-sm text-gray-300 leading-relaxed max-h-80 overflow-y-auto text-start font-sans whitespace-pre-wrap break-words",
   inputPlaceholder = "Search in OCR text...",
   initialQuery = "",
 }: OcrSearchableTextProps) {
@@ -104,7 +104,11 @@ export default function OcrSearchableText({
     }
 
     if (!normalizedQuery || !matches.length) {
-      return <span>{text}</span>;
+      return (
+        <span dir="auto" className="whitespace-pre-wrap break-words">
+          {text}
+        </span>
+      );
     }
 
     const nodes: React.ReactNode[] = [];
@@ -141,7 +145,11 @@ export default function OcrSearchableText({
       nodes.push(<span key={`text-tail-${cursor}`}>{text.slice(cursor)}</span>);
     }
 
-    return nodes;
+    return (
+      <span dir="auto" className="whitespace-pre-wrap break-words">
+        {nodes}
+      </span>
+    );
   };
 
   return (
@@ -204,7 +212,7 @@ export default function OcrSearchableText({
         )}
       </div>
 
-      <div ref={containerRef} className={textContainerClassName}>
+      <div ref={containerRef} className={textContainerClassName} dir="auto">
         {renderTextWithHighlights()}
       </div>
     </div>

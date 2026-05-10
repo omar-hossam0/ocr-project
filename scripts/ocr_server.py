@@ -129,11 +129,10 @@ def process_image(image_data):
         processed = preprocess_image(image)
         results = reader.readtext(processed, detail=0, paragraph=True)
         raw_text = "\n".join(results)
-        reshaped_text = reshape_arabic_text(raw_text)
-        
+
         return {
             "success": True,
-            "text": reshaped_text,
+            "text": raw_text,
             "raw_text": raw_text,
             "engine": "easyocr",
             "languages": languages,
@@ -190,10 +189,9 @@ def process_pdf(file_data):
                 processed = preprocess_image(image_array)
                 results = reader.readtext(processed, detail=0, paragraph=True)
                 page_text = "\n".join(results)
-                reshaped_text = reshape_arabic_text(page_text)
-                
-                if reshaped_text.strip():
-                    all_text.append(f"--- Page {page_num + 1} ---\n{reshaped_text}")
+
+                if page_text.strip():
+                    all_text.append(f"--- Page {page_num + 1} ---\n{page_text}")
                     pages_processed += 1
                 
                 if (page_num + 1) % 3 == 0:
@@ -211,6 +209,7 @@ def process_pdf(file_data):
         return {
             "success": True,
             "text": "\n\n".join(all_text),
+            "raw_text": "\n\n".join(all_text),
             "engine": "easyocr",
             "languages": languages,
             "pages_processed": pages_processed,

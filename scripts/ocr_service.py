@@ -71,23 +71,11 @@ def get_reader():
 
 
 def preprocess_image(image_array):
-    """Preprocess image for better OCR results"""
+    """Minimal preprocessing: grayscale only. EasyOCR handles the rest internally."""
     try:
         if len(image_array.shape) == 3:
-            gray = cv2.cvtColor(image_array, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image_array
-        
-        # Fast denoising
-        denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
-        
-        # Adaptive thresholding
-        thresh = cv2.adaptiveThreshold(
-            denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 11, 2
-        )
-        
-        return thresh
+            return cv2.cvtColor(image_array, cv2.COLOR_BGR2GRAY)
+        return image_array
     except Exception:
         return image_array
 
@@ -103,25 +91,62 @@ def reshape_arabic_text(text):
 
 
 def process_image(image_path, reader, device):
-    """Process a single image"""
+    """Process a single image with RTL Arabic sorting"""
     try:
         image = cv2.imread(image_path)
         if image is None:
             pil_image = Image.open(image_path)
             image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
-        
+
         processed = preprocess_image(image)
-        results = reader.readtext(processed, detail=0, paragraph=True)
-        raw_text = "\n".join(results)
-        reshaped_text = reshape_arabic_text(raw_text)
-        
+        results = reader.readtext(processed, detail=1, paragraph=False, batch_size=8)
+
+        if not results:
+            return {"success": False, "error": "No text detected"}
+
+        # Sort by Y then X descending (RTL)
+        results.sort(key=lambda r: (r[0][0][1], -r[0][0][0]))
+
+        # Calculate adaptive y_threshold from median text height
+        heights = []
+        for r in results:
+            bbox = r[0]
+            h = abs(bbox[2][1] - bbox[0][1])
+            if h > 5:
+                heights.append(h)
+        median_height = np.median(heights) if heights else 20
+        y_threshold = max(20, median_height * 0.6)
+
+        lines = []
+        current_line = []
+        current_y = None
+
+        for bbox, text, confidence in results:
+            if not text.strip():
+                continue
+            y = bbox[0][1]
+            if current_y is None or abs(y - current_y) <= y_threshold:
+                current_line.append((bbox, text.strip(), confidence))
+                current_y = (current_y * len(current_line) + y) / (len(current_line) + 1) if current_y else y
+            else:
+                current_line.sort(key=lambda r: -r[0][0][0])
+                lines.append(" ".join([w[1] for w in current_line]))
+                current_line = [(bbox, text.strip(), confidence)]
+                current_y = y
+
+        if current_line:
+            current_line.sort(key=lambda r: -r[0][0][0])
+            lines.append(" ".join([w[1] for w in current_line]))
+
+        raw_text = "\n".join(lines)
+
         return {
             "success": True,
-            "text": reshaped_text,
+            "text": raw_text,
             "raw_text": raw_text,
             "engine": "easyocr",
             "languages": ["ar", "en"],
-            "model": "custom_arabic_reshaper",
+            "model": "easyocr",
             "device": device
         }
     except Exception as e:
@@ -142,25 +167,62 @@ def process_pdf(pdf_path, reader, device):
                 pil_image = bitmap.to_pil()
                 image_array = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
                 processed = preprocess_image(image_array)
-                results = reader.readtext(processed, detail=0, paragraph=True)
-                page_text = "\n".join(results)
-                reshaped_text = reshape_arabic_text(page_text)
-                
-                if reshaped_text.strip():
-                    all_text.append(f"--- Page {page_num + 1} ---\n{reshaped_text}")
+                results = reader.readtext(processed, detail=1, paragraph=False, batch_size=8)
+
+                # Sort by Y then X descending (RTL for Arabic)
+                results.sort(key=lambda r: (r[0][0][1], -r[0][0][0]))
+
+                # Calculate adaptive y_threshold from median text height
+                heights = []
+                for r in results:
+                    bbox = r[0]
+                    h = abs(bbox[2][1] - bbox[0][1])
+                    if h > 5:
+                        heights.append(h)
+                median_height = np.median(heights) if heights else 20
+                y_threshold = max(20, median_height * 0.6)
+
+                lines = []
+                current_line = []
+                current_y = None
+
+                for bbox, text, confidence in results:
+                    if not text.strip():
+                        continue
+                    y = bbox[0][1]
+                    if current_y is None or abs(y - current_y) <= y_threshold:
+                        current_line.append((bbox, text.strip(), confidence))
+                        current_y = (current_y * len(current_line) + y) / (len(current_line) + 1) if current_y else y
+                    else:
+                        current_line.sort(key=lambda r: -r[0][0][0])
+                        lines.append(" ".join([w[1] for w in current_line]))
+                        current_line = [(bbox, text.strip(), confidence)]
+                        current_y = y
+
+                if current_line:
+                    current_line.sort(key=lambda r: -r[0][0][0])
+                    lines.append(" ".join([w[1] for w in current_line]))
+
+                page_text = "\n".join(lines)
+
+                if page_text.strip():
+                    all_text.append(f"--- Page {page_num + 1} ---\n{page_text}")
                     pages_processed += 1
             except Exception as page_error:
                 print(f"Warning: Page {page_num + 1} failed: {page_error}", file=sys.stderr)
                 continue
         
+        combined_text = "\n\n".join(all_text)
+
         return {
             "success": True,
-            "text": "\n\n".join(all_text),
+            "text": combined_text,
+            "raw_text": combined_text,
             "engine": "easyocr",
             "languages": ["ar", "en"],
             "pages_processed": pages_processed,
             "total_pages": len(pdf),
-            "model": "custom_arabic_reshaper",
+            "model": "easyocr",
             "device": device
         }
     except Exception as e:

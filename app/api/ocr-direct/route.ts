@@ -38,20 +38,11 @@ export async function POST(request: NextRequest) {
     const scriptPath = path.join(process.cwd(), "scripts", "ocr_runner.py");
     const pythonPath = process.env.OCR_PYTHON_PATH || "python";
 
-    // Enhanced OCR parameters for better text detection
-    const ocrParams = [
-      '--oem',  // Enable OEM engine for better accuracy
-      '--psm', '6',  // Assume single uniform block of text
-      '--dpi', '300',  // Higher DPI for better text recognition
-      '--user_words', 'none',  // Don't use word list
-      '--user_patterns', 'none'  // Don't use pattern dictionary
-    ].join(' ');
-
     return new Promise<NextResponse>((resolve) => {
       let stdout = "";
       let stderr = "";
 
-      const child = spawn(pythonPath, [scriptPath, ...ocrParams, tempFilePath], {
+      const child = spawn(pythonPath, [scriptPath, tempFilePath], {
         cwd: process.cwd(),
         shell: false,
         env: {

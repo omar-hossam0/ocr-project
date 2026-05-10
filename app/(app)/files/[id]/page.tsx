@@ -665,7 +665,7 @@ export default function FileDetailsPage() {
               text={file.ocrText || ""}
               initialQuery={initialSearchQuery}
               inputPlaceholder="Search word or sentence inside this file..."
-              textContainerClassName="bg-black/30 rounded-xl p-6 text-sm text-gray-300 leading-relaxed whitespace-pre-wrap max-h-[600px] overflow-y-auto font-mono border border-white/10"
+              textContainerClassName="bg-black/30 rounded-xl p-6 text-sm text-gray-300 leading-relaxed max-h-[600px] overflow-y-auto text-start font-sans whitespace-pre-wrap break-words border border-white/10"
             />
           </div>
         </div>

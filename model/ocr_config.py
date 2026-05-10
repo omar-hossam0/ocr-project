@@ -46,10 +46,11 @@ MODEL_CONFIG = {
     
     # PDF processing
     "pdf_config": {
-        "dpi": 300,  # Resolution for PDF rendering
+        "dpi": 150,  # Resolution for PDF rendering (reduced for faster processing)
         "max_pages": None,  # None = process all pages
         "skip_blank_pages": True,
         "min_text_length": 10,  # Minimum characters to consider page as non-blank
+        "arabic_optimization": True,  # Enable Arabic-specific optimizations
     },
     
     # Arabic reshaper configuration

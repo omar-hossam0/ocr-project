@@ -147,26 +147,8 @@ def get_arabic_ratio(text: str) -> float:
 
 # Simple bidirectional text handling
 def get_display(text: str) -> str:
-    """Simple bidirectional text display for Arabic"""
-    if not is_arabic_text(text):
-        return text
-    
-    # For simple Arabic text, reverse order of words
-    words = text.split()
-    arabic_words = []
-    other_words = []
-    
-    for word in words:
-        if is_arabic_text(word):
-            arabic_words.append(word)
-        else:
-            other_words.append(word)
-    
-    # If mostly Arabic, reverse order
-    if get_arabic_ratio(text) > 0.5:
-        return ' '.join(list(reversed(arabic_words)) + other_words)
-    else:
-        return text
+    """Return Arabic text as-is — EasyOCR already provides correct RTL word order"""
+    return text
 
 # Default reshaper instance for backward compatibility
 default_reshaper = get_reshaper()

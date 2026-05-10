@@ -11,7 +11,7 @@ import time
 import logging
 from pathlib import Path
 from PIL import Image
-from arabic_reshaper import reshape, get_display, is_arabic_text
+from arabic_reshaper import reshape, is_arabic_text
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -54,13 +54,9 @@ class OptimizedCameraOCR:
             # Convert to grayscale for processing
             gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY) if len(rgb.shape) == 3 else rgb
             
-            # Apply adaptive threshold for better text detection
-            processed = cv2.adaptiveThreshold(
-                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                cv2.THRESH_BINARY, 11, 2
-            )
-            
-            return processed
+            # Minimal preprocessing: grayscale only
+            # EasyOCR is a deep-learning model with its own internal preprocessing
+            return gray
         except Exception as e:
             logger.error(f"Image preprocessing failed: {e}")
             return image
@@ -79,7 +75,7 @@ class OptimizedCameraOCR:
                 processed_image,
                 detail=1,
                 paragraph=False,  # Faster processing
-                batch_size=1,
+                batch_size=8,
                 workers=0,
                 decoder="greedy",  # Faster than beamsearch
                 beamWidth=1,
@@ -112,13 +108,6 @@ class OptimizedCameraOCR:
                     # Detect if text is Arabic
                     is_arabic = is_arabic_text(text)
                     
-                    # Shape Arabic text if needed
-                    if is_arabic:
-                        try:
-                            text = reshape(text)
-                            text = get_display(text)
-                        except:
-                            pass  # Fallback to original text
                     
                     texts.append(text.strip())
                     confidences.append(confidence)

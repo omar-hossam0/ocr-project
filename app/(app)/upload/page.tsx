@@ -1152,7 +1152,7 @@ export default function UploadPage() {
                 <OcrSearchableText
                   text={ocrResult}
                   inputPlaceholder="Search word or sentence in OCR result..."
-                  textContainerClassName="bg-white/5 rounded-xl p-4 text-sm text-gray-300 leading-relaxed max-h-80 overflow-y-auto whitespace-pre-wrap"
+                  textContainerClassName="bg-white/5 rounded-xl p-4 text-sm text-gray-300 leading-relaxed max-h-80 overflow-y-auto text-start font-sans whitespace-pre-wrap break-words"
                 />
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <button

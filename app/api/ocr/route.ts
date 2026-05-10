@@ -184,6 +184,7 @@ async function runLocalOcrServer(
     // Transform response to match expected format
     const payload = {
       text: localText,
+      raw_text: (parsed.raw_text as string) || localText,
       engine: (parsed.engine as string) || "easyocr",
       device: (parsed.device as string) || "cpu",
       pages: [localText],
@@ -616,12 +617,22 @@ export async function POST(request: NextRequest) {
             payloadError?: string;
           }> = [];
 
+          // Increase timeout for large PDF files (Arabic PDFs especially)
+          let adjustedTimeoutMs = timeoutMs;
+          const fileSize = bytes.length / (1024 * 1024); // MB
+          if (isDocumentFile) {
+            // For PDFs, add more time based on file size
+            const extraMs = Math.min(fileSize * 5000, 240000); // ~5s per MB, max 4min extra
+            adjustedTimeoutMs = Math.max(timeoutMs, 180000 + extraMs); // Min 3min for PDFs
+            console.log(`📄 [OCR] PDF file: ${fileSize.toFixed(1)}MB, timeout: ${adjustedTimeoutMs/1000}s`);
+          }
+
           for (const candidate of candidates) {
             const result = await runPythonOcr(
               candidate,
               scriptPath,
               tempFilePath,
-              timeoutMs,
+              adjustedTimeoutMs,
             );
 
             const payload = parseLastJsonLine(result.stdout);
