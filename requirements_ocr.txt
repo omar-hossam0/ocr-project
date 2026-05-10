@@ -11,9 +11,20 @@ Pillow>=10.0.0
 # PDF processing
 pypdfium2>=4.0.0
 
+# Word document processing
+python-docx>=1.1.0
+
 # Deep learning backend (CPU version - use torch with CUDA for GPU)
 torch>=2.0.0
 torchvision>=0.15.0
+
+# Web server for OCR API
+Flask>=3.0.0
+Flask-CORS>=4.0.0
+Werkzeug>=3.0.0
+
+# HTTP requests (for URL processing)
+requests>=2.31.0
 
 # Optional: For GPU support, install CUDA-enabled torch:
 # pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118

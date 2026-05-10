@@ -7,7 +7,6 @@ import {
   Upload,
   Search,
   Activity,
-  Bot,
   Settings,
   LogOut,
   ChevronsUpDown,
@@ -43,7 +42,6 @@ const navItems = [
   { href: "/upload", label: "Upload", icon: Upload },
   { href: "/search", label: "Search", icon: Search },
   { href: "/tracking", label: "Tracking", icon: Activity },
-  { href: "/ollama-test", label: "Ollama Test", icon: Bot },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

@@ -89,22 +89,12 @@ async function runLocalOcrServer(buffer, fileName, timeoutMs) {
   const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    // Determine file type from extension
-    const isPdf = (fileName || "").toLowerCase().endsWith('.pdf');
-    
-    // Convert buffer to base64
-    const base64Data = buffer.toString('base64');
-    
-    const requestBody = JSON.stringify({
-      file: base64Data,
-      type: isPdf ? 'pdf' : 'image',
-      filename: fileName || 'upload.bin'
-    });
+    const formData = new FormData();
+    formData.append('file', new Blob([buffer]), fileName || 'upload.bin');
 
-    const response = await fetch(LOCAL_OCR_SERVER, {
+    const response = await fetch(`${LOCAL_OCR_SERVER}/ocr`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: requestBody,
+      body: formData,
       signal: controller.signal,
     });
 
@@ -128,11 +118,24 @@ async function runLocalOcrServer(buffer, fileName, timeoutMs) {
     }
 
     // Transform local OCR response to match expected format
+    const localText = String(parsed.text || "").trim();
+
+    if (!localText) {
+      return {
+        ok: false,
+        error: `Local OCR server returned no text for ${fileName || "upload"}`,
+        endpoint: LOCAL_OCR_SERVER,
+        status: response.status,
+        details: parsed || rawText,
+      };
+    }
+
     const payload = {
-      text: parsed.text || "",
+      text: localText,
       engine: parsed.engine || "easyocr",
       device: parsed.device || "cpu",
-      pages: parsed.text ? [parsed.text] : [],
+      pages: [localText],
+      format: parsed.format || (String(fileName || "").toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'),
       transport: "local_ocr_server",
       processing_time_ms: parsed.processing_time_ms,
     };
@@ -186,10 +189,12 @@ async function runRemoteOcr(buffer, fileName, timeoutMs) {
         ? parsed.data
         : parsed;
 
-    if (!response.ok || !remoteSuccess || !remotePayload) {
+    const remoteText = String((remotePayload && remotePayload.text) || "").trim();
+
+    if (!response.ok || !remoteSuccess || !remotePayload || !remoteText) {
       return {
         ok: false,
-        error: remoteError || `Remote OCR failed with status ${response.status}`,
+        error: remoteError || `Remote OCR failed or returned no text with status ${response.status}`,
         endpoint,
         status: response.status,
         details: parsed || rawText,

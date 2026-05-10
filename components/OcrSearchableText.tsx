@@ -8,6 +8,7 @@ type OcrSearchableTextProps = {
   emptyMessage?: string;
   textContainerClassName?: string;
   inputPlaceholder?: string;
+  initialQuery?: string;
 };
 
 type MatchRange = {
@@ -24,10 +25,16 @@ export default function OcrSearchableText({
   emptyMessage = "(No text detected by OCR)",
   textContainerClassName = "bg-white/5 rounded-xl p-4 text-sm text-gray-300 leading-relaxed max-h-80 overflow-y-auto whitespace-pre-wrap",
   inputPlaceholder = "Search in OCR text...",
+  initialQuery = "",
 }: OcrSearchableTextProps) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [manualMatchIndex, setManualMatchIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setQuery(initialQuery);
+    setManualMatchIndex(0);
+  }, [initialQuery, text]);
 
   const normalizedQuery = query.trim();
 
@@ -79,7 +86,7 @@ export default function OcrSearchableText({
       block: "center",
       inline: "nearest",
     });
-  }, [activeMatchIndex]);
+  }, [activeMatchIndex, normalizedQuery, text]);
 
   const goToPrevious = () => {
     if (!matches.length) return;

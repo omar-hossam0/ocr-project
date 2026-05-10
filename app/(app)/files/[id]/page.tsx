@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   FileText,
   MapPin,
@@ -50,6 +50,7 @@ function formatDate(value: FileRecord["uploadedAt"]): string {
 
 export default function FileDetailsPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const { showToast } = useToast();
   const [file, setFile] = useState<FileRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -115,6 +116,8 @@ export default function FileDetailsPage() {
     [file?.tags],
   );
 
+  const initialSearchQuery = searchParams?.get("q") || "";
+
   const getSafeExportBaseName = () => {
     const rawBase = (file?.name || "ocr_result").replace(/\.[^.]+$/, "").trim();
     const sanitized = rawBase.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
@@ -142,7 +145,9 @@ export default function FileDetailsPage() {
       return;
     }
 
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const blob = new Blob(["\ufeff", content], {
+      type: "text/plain;charset=utf-8",
+    });
     downloadBlob(blob, `${getSafeExportBaseName()}.txt`);
     showToast("TXT downloaded", "success");
     setDownloadMenuOpen(false);
@@ -160,23 +165,93 @@ export default function FileDetailsPage() {
       const doc = new jsPDF({ unit: "pt", format: "a4" });
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 40;
-      const lineHeight = 16;
-      const maxTextWidth = pageWidth - margin * 2;
 
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(11);
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        throw new Error("Canvas not available");
+      }
 
-      const lines = doc.splitTextToSize(content, maxTextWidth) as string[];
-      let y = margin;
-      for (const line of lines) {
-        if (y > pageHeight - margin) {
-          doc.addPage();
-          y = margin;
+      const scale = 2;
+      const width = Math.round(pageWidth * scale);
+      const height = Math.round(pageHeight * scale);
+      const margin = Math.round(48 * scale);
+      const bodyFont = `${Math.round(17 * scale)}px Arial, sans-serif`;
+      const titleFont = `bold ${Math.round(22 * scale)}px Arial, sans-serif`;
+      const lineHeight = Math.round(24 * scale);
+
+      ctx.font = bodyFont;
+      ctx.direction = "rtl";
+      ctx.textBaseline = "top";
+
+      const maxLineWidth = width - margin * 2;
+      const wrappedLines: string[] = [];
+
+      for (const paragraph of content.split(/\r?\n/)) {
+        if (!paragraph.trim()) {
+          wrappedLines.push("");
+          continue;
         }
-        doc.text(line, margin, y);
+
+        const words = paragraph.split(/\s+/);
+        let currentLine = "";
+
+        for (const word of words) {
+          const candidate = currentLine ? `${currentLine} ${word}` : word;
+          if (ctx.measureText(candidate).width <= maxLineWidth) {
+            currentLine = candidate;
+          } else {
+            if (currentLine) wrappedLines.push(currentLine);
+            currentLine = word;
+          }
+        }
+
+        if (currentLine) wrappedLines.push(currentLine);
+      }
+
+      const headerHeight = Math.round(92 * scale);
+      const textHeight = wrappedLines.length * lineHeight;
+      const canvasHeight = Math.max(height, headerHeight + textHeight + margin);
+
+      canvas.width = width;
+      canvas.height = canvasHeight;
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, canvasHeight);
+
+      ctx.fillStyle = "#0f172a";
+      ctx.font = titleFont;
+      ctx.textAlign = "center";
+      ctx.fillText("OCR Extracted Text", width / 2, Math.round(24 * scale));
+
+      const boxTop = Math.round(44 * scale);
+      const boxLeft = margin;
+      const boxWidth = width - margin * 2;
+      const boxHeight = canvasHeight - boxTop - margin;
+
+      ctx.fillStyle = "#f8fafc";
+      ctx.strokeStyle = "#cbd5e1";
+      ctx.lineWidth = Math.max(2, Math.round(scale));
+      ctx.beginPath();
+      ctx.roundRect(boxLeft, boxTop, boxWidth, boxHeight, Math.round(18 * scale));
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.font = bodyFont;
+      ctx.fillStyle = "#111827";
+      ctx.textAlign = "right";
+      const textRight = width - margin - Math.round(18 * scale);
+      let y = boxTop + Math.round(22 * scale);
+      for (const line of wrappedLines) {
+        if (line) {
+          ctx.fillText(line, textRight, y);
+        }
         y += lineHeight;
       }
+
+      const imageData = canvas.toDataURL("image/png");
+
+      doc.addImage(imageData, "PNG", 0, 0, pageWidth, pageHeight);
 
       const blob = doc.output("blob") as Blob;
       downloadBlob(blob, `${getSafeExportBaseName()}.pdf`);
@@ -202,12 +277,14 @@ export default function FileDetailsPage() {
     }
 
     const width = 1400;
-    const padding = 60;
-    const titleFont = "bold 42px Arial";
-    const bodyFont = "28px Arial";
-    const lineHeight = 40;
+    const padding = 84;
+    const titleFont = "bold 38px Arial, sans-serif";
+    const bodyFont = "26px Arial, sans-serif";
+    const lineHeight = 36;
 
     ctx.font = bodyFont;
+    ctx.direction = "rtl";
+    ctx.textBaseline = "top";
     const maxLineWidth = width - padding * 2;
     const wrappedLines: string[] = [];
 
@@ -243,15 +320,19 @@ export default function FileDetailsPage() {
     canvas.height = height;
     ctx.fillStyle = "#0f172a";
     ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "#e2e8f0";
+    ctx.fillRect(padding - 16, 24, width - (padding - 16) * 2, 72);
     ctx.fillStyle = "#38bdf8";
     ctx.font = titleFont;
-    ctx.fillText("OCR Extracted Text", padding, 70);
+    ctx.textAlign = "center";
+    ctx.fillText("OCR Extracted Text", width / 2, 42);
     ctx.fillStyle = "#e5e7eb";
     ctx.font = bodyFont;
+    ctx.textAlign = "right";
 
     let y = headerHeight;
     for (const line of wrappedLines) {
-      if (line) ctx.fillText(line, padding, y);
+      if (line) ctx.fillText(line, width - padding, y);
       y += lineHeight;
     }
 
@@ -582,6 +663,7 @@ export default function FileDetailsPage() {
             </div>
             <OcrSearchableText
               text={file.ocrText || ""}
+              initialQuery={initialSearchQuery}
               inputPlaceholder="Search word or sentence inside this file..."
               textContainerClassName="bg-black/30 rounded-xl p-6 text-sm text-gray-300 leading-relaxed whitespace-pre-wrap max-h-[600px] overflow-y-auto font-mono border border-white/10"
             />

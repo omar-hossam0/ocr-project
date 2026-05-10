@@ -13,6 +13,7 @@ import base64
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+import gc
 
 # Add model directory to Python path
 MODEL_DIR = Path(__file__).parent.parent / "model"
@@ -27,6 +28,9 @@ try:
     import cv2
     import numpy as np
     from PIL import Image
+    # Compatibility for Pillow 10+
+    if not hasattr(Image, 'ANTIALIAS'):
+        Image.ANTIALIAS = Image.Resampling.LANCZOS
     import pypdfium2 as pdfium
     
     from arabic_reshaper import reshape
@@ -149,18 +153,40 @@ def process_pdf(file_data):
             tmp_path = tmp.name
         
         pdf = pdfium.PdfDocument(tmp_path)
+        total_pages = len(pdf)
         all_text = []
         pages_processed = 0
         
-        for page_num in range(len(pdf)):
+        # Adaptive DPI for server stability
+        try:
+            base_dpi = config.get("pdf_config", {}).get("dpi", 150)
+        except Exception:
+            base_dpi = 150
+            
+        if total_pages > 30:
+            dpi = 120
+        elif total_pages > 10:
+            dpi = 150
+        else:
+            dpi = 180
+            
+        for page_num in range(total_pages):
             try:
                 page = pdf[page_num]
-                # Use configured DPI from ocr_config to determine render scale
-                dpi = config.get("pdf_config", {}).get("dpi", 300)
                 scale = float(dpi) / 72.0
                 bitmap = page.render(scale=scale)
                 pil_image = bitmap.to_pil()
-                image_array = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+                
+                # Convert to grayscale numpy array immediately
+                if pil_image.mode != 'L':
+                    pil_image = pil_image.convert('L')
+                image_array = np.array(pil_image)
+                
+                # Clean up
+                del pil_image
+                bitmap.close()
+                page.close()
+                
                 processed = preprocess_image(image_array)
                 results = reader.readtext(processed, detail=0, paragraph=True)
                 page_text = "\n".join(results)
@@ -169,12 +195,18 @@ def process_pdf(file_data):
                 if reshaped_text.strip():
                     all_text.append(f"--- Page {page_num + 1} ---\n{reshaped_text}")
                     pages_processed += 1
+                
+                if (page_num + 1) % 3 == 0:
+                    gc.collect()
+                    
             except Exception as page_error:
                 print(f"Warning: Page {page_num + 1} failed: {page_error}", file=sys.stderr)
                 continue
         
         # Cleanup
         os.unlink(tmp_path)
+        pdf.close()
+        gc.collect()
         
         return {
             "success": True,
@@ -182,7 +214,7 @@ def process_pdf(file_data):
             "engine": "easyocr",
             "languages": languages,
             "pages_processed": pages_processed,
-            "total_pages": len(pdf),
+            "total_pages": total_pages,
             "device": device
         }
     except Exception as e:

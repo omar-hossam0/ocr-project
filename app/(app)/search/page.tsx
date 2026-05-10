@@ -272,7 +272,7 @@ export default function SearchPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <Link
-                      href={`/files/${file.id}`}
+                      href={`/files/${file.id}${query ? `?q=${encodeURIComponent(query)}` : ""}`}
                       className="font-medium text-white hover:text-sky-400 transition"
                     >
                       {file.name || "Untitled"}
@@ -300,7 +300,7 @@ export default function SearchPage() {
                 </p>
                 <div className="flex items-center gap-2 mt-3">
                   <Link
-                    href={`/files/${file.id}`}
+                    href={`/files/${file.id}${query ? `?q=${encodeURIComponent(query)}` : ""}`}
                     className="text-xs text-sky-400 hover:text-sky-300 font-medium flex items-center gap-1"
                   >
                     <ExternalLink className="w-3 h-3" />

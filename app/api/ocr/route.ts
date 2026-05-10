@@ -37,6 +37,17 @@ const IMAGE_EXTENSIONS = new Set([
   ".webp",
 ]);
 
+const DOCUMENT_EXTENSIONS = new Set([
+  ".pdf",
+  ".docx",
+  ".doc",
+]);
+
+const SUPPORTED_EXTENSIONS = new Set([
+  ...IMAGE_EXTENSIONS,
+  ...DOCUMENT_EXTENSIONS,
+]);
+
 const JS_FALLBACK_DEFAULT_LANG = "ara+eng";
 
 // ── Cached tesseract.js worker (created once, reused across requests) ──
@@ -130,24 +141,12 @@ async function runLocalOcrServer(
   const timeoutHandle = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    // Determine file type from extension
-    const fileName = uploaded.name || "upload.bin";
-    const isPdf = fileName.toLowerCase().endsWith('.pdf');
+    const formData = new FormData();
+    formData.append("file", uploaded, uploaded.name || "upload.bin");
 
-    // Convert file to base64
-    const arrayBuffer = await uploaded.arrayBuffer();
-    const base64Data = Buffer.from(arrayBuffer).toString('base64');
-
-    const requestBody = JSON.stringify({
-      file: base64Data,
-      type: isPdf ? 'pdf' : 'image',
-      filename: fileName,
-    });
-
-    const response = await fetch(LOCAL_OCR_SERVER, {
+    const response = await fetch(`${LOCAL_OCR_SERVER}/ocr`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: requestBody,
+      body: formData,
       signal: controller.signal,
     });
 
@@ -170,12 +169,26 @@ async function runLocalOcrServer(
       };
     }
 
+    const localText = String(parsed.text || "").trim();
+
+    if (!localText) {
+      return {
+        ok: false,
+        error: `Local OCR server returned no text for ${uploaded.name || "upload"}`,
+        endpoint: LOCAL_OCR_SERVER,
+        status: response.status,
+        details: parsed || rawText,
+      };
+    }
+
     // Transform response to match expected format
     const payload = {
-      text: (parsed.text as string) || "",
+      text: localText,
       engine: (parsed.engine as string) || "easyocr",
       device: (parsed.device as string) || "cpu",
-      pages: parsed.text ? [(parsed.text as string)] : [],
+      pages: [localText],
+      format: parsed.format || (uploaded.name.toLowerCase().endsWith(".pdf") ? "pdf" : "image"),
+      source: (parsed.source as string) || "local_ocr_server",
       transport: "local_ocr_server",
       processing_time_ms: parsed.processing_time_ms,
     };
@@ -235,12 +248,16 @@ async function runRemoteOcr(
         ? (parsed.data as Record<string, unknown>)
         : parsed;
 
-    if (!response.ok || !remoteSuccess || !remotePayload) {
+    const remoteText = String(
+      (remotePayload && (remotePayload.text as string)) || "",
+    ).trim();
+
+    if (!response.ok || !remoteSuccess || !remotePayload || !remoteText) {
       return {
         ok: false,
         error:
           remoteError ||
-          `Remote OCR request failed with status ${response.status}`,
+          `Remote OCR request failed or returned no text with status ${response.status}`,
         endpoint,
         status: response.status,
         details: parsed || rawText,
@@ -423,7 +440,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const uploaded = form.get("file");
+  let uploaded = form.get("file");
 
   if (!uploaded || !(uploaded instanceof File)) {
     return NextResponse.json(
@@ -435,8 +452,47 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Check if this is a local file path (from upload fallback)
+  const localPath = form.get("localPath") as string;
+  if (localPath) {
+    try {
+      // Read the local file and convert to File object for processing
+      const fileBuffer = await fs.readFile(localPath);
+      const fileName = form.get("fileName") as string || path.basename(localPath);
+      const file = new File([fileBuffer], fileName, {
+        type: form.get("fileType") as string || 'application/octet-stream'
+      });
+      
+      // Replace the uploaded file with the local file
+      uploaded = file;
+    } catch (localError) {
+      console.error("Failed to read local file:", localError);
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Failed to access local file for OCR",
+        },
+        { status: 500 },
+      );
+    }
+  }
+
   const fileExt = path.extname(uploaded.name || "").toLowerCase() || ".bin";
-  const defaultTimeoutMs = process.env.VERCEL ? 45000 : 300000;
+  
+  // Validate file type early
+  if (!SUPPORTED_EXTENSIONS.has(fileExt)) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Unsupported file type: ${fileExt}`,
+        supported_types: Array.from(SUPPORTED_EXTENSIONS),
+        hint: "Supported formats: Images (JPG, PNG, etc.) and Documents (PDF, DOCX, DOC)"
+      },
+      { status: 400 },
+    );
+  }
+
+  const defaultTimeoutMs = process.env.VERCEL ? 120000 : 600000; // 2min on Vercel, 10min locally
   const timeoutMs = Number(
     process.env.OCR_PROCESS_TIMEOUT_MS || defaultTimeoutMs,
   );
@@ -444,12 +500,18 @@ export async function POST(request: NextRequest) {
   const localFallbackEnabled = !process.env.VERCEL || process.env.OCR_LOCAL_FALLBACK === "1";
   const jsFallbackEnabled = (process.env.OCR_JS_FALLBACK || "1") !== "0";
   const isImageFile = IMAGE_EXTENSIONS.has(fileExt);
+  const isDocumentFile = DOCUMENT_EXTENSIONS.has(fileExt);
 
   try {
     // ── 0. Local OCR server (fastest - pre-loaded EasyOCR models) ──
     try {
-      const localResult = await runLocalOcrServer(uploaded, Math.min(timeoutMs, 30000));
+      console.log(`📡 [OCR] Trying local OCR server for ${uploaded.name}...`);
+      // Increase timeout for local server, especially for PDFs
+      const localTimeout = isDocumentFile ? Math.min(timeoutMs, 300000) : Math.min(timeoutMs, 60000);
+      const localResult = await runLocalOcrServer(uploaded, localTimeout);
+      
       if (localResult?.ok) {
+        console.log(`✅ [OCR] Local server success: ${shorten(localResult.payload.text as string, 50)}`);
         return NextResponse.json({
           success: true,
           data: {
@@ -458,13 +520,16 @@ export async function POST(request: NextRequest) {
           },
           timestamp: new Date().toISOString(),
         });
+      } else if (localResult) {
+        console.warn(`⚠️ [OCR] Local server failed: ${localResult.error}`);
       }
-    } catch (localError: unknown) {
-      console.log("Local OCR server not available, trying other methods...");
+    } catch (err) {
+      console.log("Local OCR server not available or error, trying other methods...", err);
       // Continue to other methods
     }
 
     // ── 1. For IMAGE files on Vercel: try tesseract.js FIRST (reliable in serverless) ──
+    // Documents (PDF, DOCX, DOC) should go directly to Python script
     if (isImageFile && jsFallbackEnabled) {
       try {
         const jsPayload = await runJsOcrFallback(uploaded, fileExt);
@@ -500,7 +565,8 @@ export async function POST(request: NextRequest) {
     }
 
     // ── 2. For IMAGE files: try tesseract.js FIRST if remote fails ──
-    if (isImageFile && jsFallbackEnabled) {
+    // Documents should always go to Python script for proper processing
+    if (isImageFile && jsFallbackEnabled && !isDocumentFile) {
       try {
         const jsPayload = await runJsOcrFallback(uploaded, fileExt);
         if (jsPayload) {

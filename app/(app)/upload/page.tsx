@@ -32,7 +32,7 @@ type FileStatus =
   | "checked_out"
   | "in_archive";
 const OCR_JOB_STORAGE_KEY = "ocrBackgroundFileId";
-const OCR_CLIENT_TIMEOUT_MS = 180000; // 180s for first-time lang download; subsequent runs ~10-20s
+const OCR_CLIENT_TIMEOUT_MS = 600000; // 10m for large PDFs and first-time lang download
 const STORAGE_UPLOAD_TIMEOUT_MS = 180000;
 
 async function safeReadJson<T>(response: Response): Promise<{
@@ -531,6 +531,7 @@ export default function UploadPage() {
         let ocrText = "";
         let ocrEngine = "";
         let ocrDevice = "cpu";
+        let ocrSource = "";
 
         try {
           const formData = new FormData();
@@ -550,7 +551,7 @@ export default function UploadPage() {
           setOcrProgress(70);
           const { json: ocrJson, rawText } = await safeReadJson<{
             success?: boolean;
-            data?: { text?: string; engine?: string; device?: string };
+            data?: { text?: string; engine?: string; device?: string; source?: string; format?: string };
             error?: string;
           }>(ocrResponse);
           
@@ -558,6 +559,7 @@ export default function UploadPage() {
             ocrText = (ocrJson?.data?.text || "").trim();
             ocrEngine = ocrJson?.data?.engine || "tesseract.js";
             ocrDevice = ocrJson?.data?.device || "cpu";
+            ocrSource = ocrJson?.data?.source || "";
             setOcrProgress(90);
           } else {
             console.warn("OCR returned error:", ocrJson?.error || rawText);
@@ -590,13 +592,25 @@ export default function UploadPage() {
         // Show OCR result immediately and STOP processing state for UI
         if (ocrText) {
           setOcrResult(ocrText);
-          setOcrEngineInfo(`${ocrEngine} • ${ocrDevice}`);
+          const engineLabel =
+            ocrSource === "pdf_text_layer"
+              ? "PDF text layer"
+              : ocrSource === "pdf_ocr"
+                ? "PDF OCR"
+                : ocrEngine;
+          setOcrEngineInfo(`${engineLabel} • ${ocrDevice}`);
           setOcrProgress(100);
           setProcessing(false); // Stop the spinner immediately
           showToast("OCR completed successfully!", "success");
         } else {
           setOcrResult("(No text detected by OCR)");
-          setOcrEngineInfo(ocrEngine ? `${ocrEngine} • no text found` : "OCR unavailable");
+          const engineLabel =
+            ocrSource === "pdf_text_layer"
+              ? "PDF text layer"
+              : ocrSource === "pdf_ocr"
+                ? "PDF OCR"
+                : ocrEngine;
+          setOcrEngineInfo(engineLabel ? `${engineLabel} • no text found` : "OCR unavailable");
           setOcrProgress(0);
           setProcessing(false);
           showToast("OCR failed on server; no text detected", "error");
