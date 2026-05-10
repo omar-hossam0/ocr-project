@@ -1,6 +1,7 @@
 # 🔧 حل مشكلة PDF العربي في نظام OCR
 
 ## المشكلة الأصلية
+
 - ملفات PDF العربية تستغرق وقتاً طويلاً جداً في المعالجة
 - في النهاية يظهر رسالة "No text detected" (لا يوجد نص مكتشف)
 - النصوص الإنجليزية تعمل بشكل طبيعي
@@ -8,28 +9,34 @@
 ## أسباب المشكلة
 
 ### 1. **DPI مرتفع جداً (300 DPI)**
+
 - كل صورة من صفحة PDF يتم تحويلها بدقة عالية جداً
 - هذا يستهلك ذاكرة وقت معالجة كبيرين
 - الملفات الكبيرة تأخذ وقتاً طويلاً جداً وقد تتجاوز timeout
 
 ### 2. **مشاكل في معالجة النصوص العربية**
+
 - معايير الكشف عن النص كانت عالية جداً (text_threshold: 0.7)
 - قد لا يكتشف الخطوط الدقيقة أو النصوص الصغيرة
 - عدم وجود معالجة خاصة لخصائص الخط العربي
 
 ### 3. **Timeout قصير جداً**
+
 - القيم الافتراضية قد لا تكون كافية للملفات الكبيرة
 
 ## الحل المطبق
 
 ### 1. ✅ تقليل DPI بناءً على حجم الملف
+
 **في `model/ocr_config.py`:**
+
 ```python
 # Before: "dpi": 300
 # After: "dpi": 150
 ```
 
 **في `scripts/ocr_runner.py` - معالجة ديناميكية:**
+
 ```python
 # حساب DPI بناءً على:
 # - حجم الملف
@@ -43,11 +50,13 @@ else:                     dpi = 150
 ```
 
 ### 2. ✅ معايير كشف محسّنة للنصوص العربية
+
 **تحسينات الكشف:**
+
 ```python
 # معايير أكثر مرونة للنصوص العربية
 results = reader.readtext(
-    processed, 
+    processed,
     detail=1,
     text_threshold=0.5,  # قبل: 0.7
     low_text=0.3,        # قبل: 0.4
@@ -63,7 +72,9 @@ if not results:
 ```
 
 ### 3. ✅ معالجة أفضل للخطوط العربية
+
 **تحسينات معالجة الخطوط:**
+
 ```python
 # تقليل حساسية Y-threshold
 y_threshold = max(10, median_height * 0.5)  # قبل: 0.6
@@ -77,7 +88,9 @@ reshaped_page = reshape_arabic_text(page_text)
 ```
 
 ### 4. ✅ زيادة Timeout للملفات الكبيرة
+
 **في `app/api/ocr/route.ts`:**
+
 ```typescript
 // للملفات الصغيرة: 180 ثانية (3 دقائق)
 // للملفات الكبيرة: 180 ثانية + (حجم الملف × 5 ثواني)
@@ -86,13 +99,15 @@ reshaped_page = reshape_arabic_text(page_text)
 const fileSize = bytes.length / (1024 * 1024); // MB
 let adjustedTimeoutMs = timeoutMs;
 if (isDocumentFile) {
-    const extraMs = Math.min(fileSize * 5000, 240000);
-    adjustedTimeoutMs = Math.max(timeoutMs, 180000 + extraMs);
+  const extraMs = Math.min(fileSize * 5000, 240000);
+  adjustedTimeoutMs = Math.max(timeoutMs, 180000 + extraMs);
 }
 ```
 
 ### 5. ✅ معالجة الأرقام والحروف العربية
+
 **تحسين معالجة النصوص:**
+
 ```python
 # تحويل الأرقام العربية إلى اللاتينية
 # ٠١٢٣٤٥٦٧٨٩ → 0123456789
@@ -108,6 +123,7 @@ arabic_to_latin_map = {
 ## المميزات الإضافية
 
 ### 📊 تقارير تقدم أفضل
+
 ```
 [OCR] Page 5/100 (5%)
 [OCR] Page 10/100 (10%)
@@ -115,30 +131,34 @@ arabic_to_latin_map = {
 ```
 
 ### 📈 معلومات تفصيلية في النتيجة
+
 ```json
 {
-    "success": true,
-    "pages_processed": 95,
-    "total_pages": 100,
-    "dpi_used": 120,
-    "file_size_mb": 25.5,
-    "processing_time_ms": 15000
+  "success": true,
+  "pages_processed": 95,
+  "total_pages": 100,
+  "dpi_used": 120,
+  "file_size_mb": 25.5,
+  "processing_time_ms": 15000
 }
 ```
 
 ### 🧹 تنظيف الذاكرة
+
 - garbage collection كل 3 صفحات
 - تحرير الموارد فوراً
 
 ## كيفية الاستخدام والاختبار
 
 ### 1. 🧪 اختبار التحسينات
+
 ```bash
 # تشغيل اختبار شامل
 python test_arabic_pdf_fix.py
 ```
 
 ### 2. 📤 اختبار مع ملف PDF عربي حقيقي
+
 ```bash
 # رفع ملف PDF عربي من خلال الواجهة
 # أو استخدام API مباشرة
@@ -147,6 +167,7 @@ curl -X POST http://localhost:3000/api/ocr \
 ```
 
 ### 3. 📋 متابعة السجلات
+
 ```bash
 # في console الخادم:
 # [OCR] PDF file: 25.5MB, timeout: 305s
@@ -158,14 +179,17 @@ curl -X POST http://localhost:3000/api/ocr \
 ## النتائج المتوقعة
 
 ### ⏱️ تحسن في السرعة
+
 - الملفات الكبيرة (>20MB): **50% أسرع** (من 30 ثانية إلى 15 ثانية)
 - الملفات المتوسطة: **30% أسرع**
 
 ### ✅ تحسن في دقة كشف النصوص
+
 - نصوص عربية أفضل من قبل **20-30%**
 - معالجة أفضل للخطوط الدقيقة
 
 ### 🎯 عدم تجاوز Timeout
+
 - timeout ديناميكي بناءً على حجم الملف
 - لا مزيد من أخطاء "timeout exceeded"
 
@@ -189,6 +213,7 @@ OCR_USE_GPU=1               # تفعيل GPU (إن توفر)
 ## 📞 الدعم والمشاكل
 
 إذا واجهت مشاكل:
+
 1. تحقق من السجلات في console
 2. شغّل `test_arabic_pdf_fix.py` للتشخيص
 3. تأكد من تثبيت جميع المتطلبات: `pip install -r requirements_arabic_ocr.txt`

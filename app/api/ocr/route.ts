@@ -37,11 +37,7 @@ const IMAGE_EXTENSIONS = new Set([
   ".webp",
 ]);
 
-const DOCUMENT_EXTENSIONS = new Set([
-  ".pdf",
-  ".docx",
-  ".doc",
-]);
+const DOCUMENT_EXTENSIONS = new Set([".pdf", ".docx", ".doc"]);
 
 const SUPPORTED_EXTENSIONS = new Set([
   ...IMAGE_EXTENSIONS,
@@ -73,7 +69,11 @@ async function getOrCreateTessWorker(lang: string): Promise<TessWorker> {
 
   // Terminate old worker if language changed
   if (_cachedWorker) {
-    try { await _cachedWorker.terminate(); } catch { /* ignore */ }
+    try {
+      await _cachedWorker.terminate();
+    } catch {
+      /* ignore */
+    }
     _cachedWorker = null;
   }
 
@@ -88,10 +88,12 @@ async function getOrCreateTessWorker(lang: string): Promise<TessWorker> {
       logger: (m: { status: string; progress: number }) => {
         // Only log significant progress to reduce noise
         if (m.progress === 0 || m.progress === 1 || m.progress % 0.2 < 0.01) {
-          console.log(`🔍 [Tesseract] ${m.status}: ${Math.round(m.progress * 100)}%`);
+          console.log(
+            `🔍 [Tesseract] ${m.status}: ${Math.round(m.progress * 100)}%`,
+          );
         }
       },
-      cachePath: path.join(os.tmpdir(), 'tess-data'),
+      cachePath: path.join(os.tmpdir(), "tess-data"),
       gzip: false,
       errorHandler: (err: Error) => console.error("❌ [Tesseract Error]", err),
       // Optimize for speed
@@ -99,8 +101,15 @@ async function getOrCreateTessWorker(lang: string): Promise<TessWorker> {
     });
 
     // Optimize OCR parameters for speed
-    if (typeof (worker as { setParameters?: unknown }).setParameters === 'function') {
-      await (worker as unknown as { setParameters: (p: Record<string, unknown>) => Promise<unknown> }).setParameters({
+    if (
+      typeof (worker as { setParameters?: unknown }).setParameters ===
+      "function"
+    ) {
+      await (
+        worker as unknown as {
+          setParameters: (p: Record<string, unknown>) => Promise<unknown>;
+        }
+      ).setParameters({
         tessedit_pageseg_mode: 3, // Fully automatic page segmentation
         tessedit_ocr_engine_mode: 2, // LSTM only (faster)
       });
@@ -108,7 +117,9 @@ async function getOrCreateTessWorker(lang: string): Promise<TessWorker> {
 
     _cachedWorker = worker as unknown as TessWorker;
     _workerLang = lang;
-    console.log(`✅ [OCR] tesseract.js worker ready in ${Date.now() - startMs}ms`);
+    console.log(
+      `✅ [OCR] tesseract.js worker ready in ${Date.now() - startMs}ms`,
+    );
     return _cachedWorker;
   })();
 
@@ -154,7 +165,9 @@ async function runLocalOcrServer(
     let parsed: Record<string, unknown> | null = null;
 
     try {
-      parsed = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : null;
+      parsed = rawText
+        ? (JSON.parse(rawText) as Record<string, unknown>)
+        : null;
     } catch {
       parsed = null;
     }
@@ -162,7 +175,9 @@ async function runLocalOcrServer(
     if (!response.ok || !parsed?.success) {
       return {
         ok: false,
-        error: (parsed?.error as string) || `Local OCR server failed with status ${response.status}`,
+        error:
+          (parsed?.error as string) ||
+          `Local OCR server failed with status ${response.status}`,
         endpoint: LOCAL_OCR_SERVER,
         status: response.status,
         details: parsed || rawText,
@@ -188,7 +203,9 @@ async function runLocalOcrServer(
       engine: (parsed.engine as string) || "easyocr",
       device: (parsed.device as string) || "cpu",
       pages: [localText],
-      format: parsed.format || (uploaded.name.toLowerCase().endsWith(".pdf") ? "pdf" : "image"),
+      format:
+        parsed.format ||
+        (uploaded.name.toLowerCase().endsWith(".pdf") ? "pdf" : "image"),
       source: (parsed.source as string) || "local_ocr_server",
       transport: "local_ocr_server",
       processing_time_ms: parsed.processing_time_ms,
@@ -196,7 +213,8 @@ async function runLocalOcrServer(
 
     return { ok: true, payload, endpoint: LOCAL_OCR_SERVER };
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : "Local OCR server failed";
+    const errorMessage =
+      error instanceof Error ? error.message : "Local OCR server failed";
     return { ok: false, error: errorMessage, endpoint: LOCAL_OCR_SERVER };
   } finally {
     clearTimeout(timeoutHandle);
@@ -381,7 +399,9 @@ async function runJsOcrFallback(uploaded: File, fileExt: string) {
     JS_FALLBACK_DEFAULT_LANG;
 
   const startMs = Date.now();
-  console.log(`🔍 [OCR] Starting tesseract.js (lang: ${tesseractLang}, file: ${uploaded.name})`);
+  console.log(
+    `🔍 [OCR] Starting tesseract.js (lang: ${tesseractLang}, file: ${uploaded.name})`,
+  );
 
   try {
     const worker = await getOrCreateTessWorker(tesseractLang);
@@ -390,12 +410,16 @@ async function runJsOcrFallback(uploaded: File, fileExt: string) {
       throw new Error("Empty file buffer");
     }
     const imageBytes = Buffer.from(arrayBuffer);
-    
-    console.log(`🔍 [OCR] Buffer created (${imageBytes.length} bytes), running recognize...`);
+
+    console.log(
+      `🔍 [OCR] Buffer created (${imageBytes.length} bytes), running recognize...`,
+    );
     const result = await worker.recognize(imageBytes);
     const text = String(result?.data?.text || "").trim();
 
-    console.log(`✅ [OCR] tesseract.js completed in ${Date.now() - startMs}ms (${text.length} chars)`);
+    console.log(
+      `✅ [OCR] tesseract.js completed in ${Date.now() - startMs}ms (${text.length} chars)`,
+    );
 
     return {
       success: true,
@@ -459,11 +483,12 @@ export async function POST(request: NextRequest) {
     try {
       // Read the local file and convert to File object for processing
       const fileBuffer = await fs.readFile(localPath);
-      const fileName = form.get("fileName") as string || path.basename(localPath);
+      const fileName =
+        (form.get("fileName") as string) || path.basename(localPath);
       const file = new File([fileBuffer], fileName, {
-        type: form.get("fileType") as string || 'application/octet-stream'
+        type: (form.get("fileType") as string) || "application/octet-stream",
       });
-      
+
       // Replace the uploaded file with the local file
       uploaded = file;
     } catch (localError) {
@@ -479,7 +504,7 @@ export async function POST(request: NextRequest) {
   }
 
   const fileExt = path.extname(uploaded.name || "").toLowerCase() || ".bin";
-  
+
   // Validate file type early
   if (!SUPPORTED_EXTENSIONS.has(fileExt)) {
     return NextResponse.json(
@@ -487,7 +512,7 @@ export async function POST(request: NextRequest) {
         success: false,
         error: `Unsupported file type: ${fileExt}`,
         supported_types: Array.from(SUPPORTED_EXTENSIONS),
-        hint: "Supported formats: Images (JPG, PNG, etc.) and Documents (PDF, DOCX, DOC)"
+        hint: "Supported formats: Images (JPG, PNG, etc.) and Documents (PDF, DOCX, DOC)",
       },
       { status: 400 },
     );
@@ -498,7 +523,8 @@ export async function POST(request: NextRequest) {
     process.env.OCR_PROCESS_TIMEOUT_MS || defaultTimeoutMs,
   );
 
-  const localFallbackEnabled = !process.env.VERCEL || process.env.OCR_LOCAL_FALLBACK === "1";
+  const localFallbackEnabled =
+    !process.env.VERCEL || process.env.OCR_LOCAL_FALLBACK === "1";
   const jsFallbackEnabled = (process.env.OCR_JS_FALLBACK || "1") !== "0";
   const isImageFile = IMAGE_EXTENSIONS.has(fileExt);
   const isDocumentFile = DOCUMENT_EXTENSIONS.has(fileExt);
@@ -508,11 +534,15 @@ export async function POST(request: NextRequest) {
     try {
       console.log(`📡 [OCR] Trying local OCR server for ${uploaded.name}...`);
       // Increase timeout for local server, especially for PDFs
-      const localTimeout = isDocumentFile ? Math.min(timeoutMs, 300000) : Math.min(timeoutMs, 60000);
+      const localTimeout = isDocumentFile
+        ? Math.min(timeoutMs, 300000)
+        : Math.min(timeoutMs, 60000);
       const localResult = await runLocalOcrServer(uploaded, localTimeout);
-      
+
       if (localResult?.ok) {
-        console.log(`✅ [OCR] Local server success: ${shorten(localResult.payload.text as string, 50)}`);
+        console.log(
+          `✅ [OCR] Local server success: ${shorten(localResult.payload.text as string, 50)}`,
+        );
         return NextResponse.json({
           success: true,
           data: {
@@ -525,7 +555,10 @@ export async function POST(request: NextRequest) {
         console.warn(`⚠️ [OCR] Local server failed: ${localResult.error}`);
       }
     } catch (err) {
-      console.log("Local OCR server not available or error, trying other methods...", err);
+      console.log(
+        "Local OCR server not available or error, trying other methods...",
+        err,
+      );
       // Continue to other methods
     }
 
@@ -544,7 +577,7 @@ export async function POST(request: NextRequest) {
             timestamp: new Date().toISOString(),
           });
         } else {
-           console.warn("⚠️ [OCR] tesseract.js returned empty text");
+          console.warn("⚠️ [OCR] tesseract.js returned empty text");
         }
       } catch (jsError: unknown) {
         console.error("❌ [OCR] tesseract.js failed on Vercel:", jsError);
@@ -580,7 +613,10 @@ export async function POST(request: NextRequest) {
       } catch (jsError: unknown) {
         const jsErrMsg =
           jsError instanceof Error ? jsError.message : "JS OCR failed";
-        console.warn("⚠️ tesseract.js failed, will try Python fallback:", jsErrMsg);
+        console.warn(
+          "⚠️ tesseract.js failed, will try Python fallback:",
+          jsErrMsg,
+        );
         // Continue to Python fallback below
       }
     }
@@ -624,7 +660,9 @@ export async function POST(request: NextRequest) {
             // For PDFs, add more time based on file size
             const extraMs = Math.min(fileSize * 5000, 240000); // ~5s per MB, max 4min extra
             adjustedTimeoutMs = Math.max(timeoutMs, 180000 + extraMs); // Min 3min for PDFs
-            console.log(`📄 [OCR] PDF file: ${fileSize.toFixed(1)}MB, timeout: ${adjustedTimeoutMs/1000}s`);
+            console.log(
+              `📄 [OCR] PDF file: ${fileSize.toFixed(1)}MB, timeout: ${adjustedTimeoutMs / 1000}s`,
+            );
           }
 
           for (const candidate of candidates) {
@@ -709,9 +747,8 @@ export async function POST(request: NextRequest) {
     }
 
     // ── 4. Nothing worked ──
-    const errorDetail = remoteResult && !remoteResult.ok
-      ? `Remote: ${remoteResult.error}. `
-      : "";
+    const errorDetail =
+      remoteResult && !remoteResult.ok ? `Remote: ${remoteResult.error}. ` : "";
 
     return NextResponse.json(
       {
