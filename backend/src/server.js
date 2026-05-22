@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import bcrypt from "bcryptjs";
-import { connectDb, getDb } from "./db.js";
+import { connectDb, getDb, isDbReady } from "./db.js";
 import { authMiddleware } from "./middleware/auth.js";
 
 import authRoutes from "./routes/auth.js";
@@ -24,6 +24,14 @@ import systemRoutes from "./routes/settings/system.js";
 import usersRoutes from "./routes/settings/users.js";
 
 dotenv.config();
+
+function isTruthyEnv(value) {
+  if (!value) return false;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+const allowStartWithoutDb = isTruthyEnv(process.env.ALLOW_START_WITHOUT_DB);
 
 const app = express();
 
@@ -49,11 +57,25 @@ app.use(
   }),
 );
 
+function requireDb(_req, res, next) {
+  if (isDbReady()) {
+    return next();
+  }
+
+  return res.status(503).json({
+    success: false,
+    status: "error",
+    error: "MongoDB is not connected",
+    message:
+      "Backend started without MongoDB. Configure MONGODB_URI and restart the server.",
+  });
+}
+
 app.use("/api/health", healthRoutes);
 app.use("/api/firestore-check", firestoreCheckRoutes);
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", requireDb, authRoutes);
 
-app.use("/api", authMiddleware());
+app.use("/api", requireDb, authMiddleware());
 
 app.use("/api/files", filesRoutes);
 app.use("/api/upload", uploadRoutes);
@@ -96,19 +118,41 @@ async function ensureAdminUser() {
 }
 
 async function start() {
+  let dbConnected = false;
+
   try {
     await connectDb();
+    dbConnected = true;
     await ensureAdminUser();
 
     const port = Number(process.env.PORT || 4000);
     app.listen(port, () => {
       console.log(`Backend running on http://localhost:${port}`);
+      if (!dbConnected) {
+        console.warn(
+          "MongoDB connection unavailable. API routes will return 503 until configured.",
+        );
+      }
     });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to start server";
     console.error(message);
-    process.exit(1);
+    if (!allowStartWithoutDb) {
+      process.exit(1);
+    }
+
+    console.warn(
+      "Starting without MongoDB. Set ALLOW_START_WITHOUT_DB=0 to require a database connection.",
+    );
+
+    const port = Number(process.env.PORT || 4000);
+    app.listen(port, () => {
+      console.log(`Backend running on http://localhost:${port}`);
+      console.warn(
+        "MongoDB connection unavailable. API routes will return 503 until configured.",
+      );
+    });
   }
 }
 

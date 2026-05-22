@@ -1,9 +1,21 @@
 import express from "express";
-import { getDb } from "../db.js";
+import { getDb, isDbReady } from "../db.js";
 
 const router = express.Router();
 
 router.get("/", async (_req, res) => {
+  if (!isDbReady()) {
+    return res.status(503).json({
+      success: false,
+      status: "degraded",
+      checks: {
+        MongoDB: "not connected",
+        "Last Check": new Date().toISOString(),
+      },
+      message: "MongoDB is not connected",
+    });
+  }
+
   try {
     const db = getDb();
     await db.admin().ping();

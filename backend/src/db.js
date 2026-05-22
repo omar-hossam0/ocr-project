@@ -4,6 +4,17 @@ let client;
 let db;
 let bucket;
 
+function parseTimeoutMs(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function isTruthyEnv(value) {
+  if (!value) return false;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
 export async function connectDb() {
   if (db && bucket) {
     return { db, bucket };
@@ -15,7 +26,30 @@ export async function connectDb() {
   }
 
   if (!client) {
-    client = new MongoClient(uri);
+    const mongoOptions = {
+      serverSelectionTimeoutMS: parseTimeoutMs(
+        process.env.MONGODB_SERVER_SELECTION_TIMEOUT_MS,
+        10000,
+      ),
+      connectTimeoutMS: parseTimeoutMs(
+        process.env.MONGODB_CONNECT_TIMEOUT_MS,
+        10000,
+      ),
+    };
+
+    const tlsCAFile = process.env.MONGODB_TLS_CA_FILE;
+    if (tlsCAFile) {
+      mongoOptions.tls = true;
+      mongoOptions.tlsCAFile = tlsCAFile;
+    }
+
+    if (isTruthyEnv(process.env.MONGODB_TLS_INSECURE)) {
+      mongoOptions.tls = true;
+      mongoOptions.tlsAllowInvalidCertificates = true;
+      mongoOptions.tlsAllowInvalidHostnames = true;
+    }
+
+    client = new MongoClient(uri, mongoOptions);
   }
 
   await client.connect();
@@ -39,6 +73,10 @@ export function getBucket() {
     throw new Error("GridFS bucket not initialized. Call connectDb() first.");
   }
   return bucket;
+}
+
+export function isDbReady() {
+  return Boolean(db && bucket);
 }
 
 export { ObjectId };

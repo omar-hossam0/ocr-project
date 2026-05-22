@@ -7,6 +7,7 @@ Provides REST API for OCR processing
 import sys
 import os
 import json
+import time
 import torch
 from pathlib import Path
 from flask import Flask, request, jsonify
@@ -40,10 +41,24 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max
 UPLOAD_FOLDER = Path(MODEL_DIR.parent) / "uploads"
 UPLOAD_FOLDER.mkdir(exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png', 'bmp', 'gif', 'webp', 'tiff', 'tif'}
+MAX_OCR_IMAGE_DIMENSION = int(os.getenv("OCR_MAX_IMAGE_DIMENSION", "1600"))
+PDF_RENDER_SCALE = float(os.getenv("OCR_PDF_RENDER_SCALE", "2.0"))
 
 # Global reader
 _reader = None
 _device = None
+
+
+def get_fast_ocr_options(config):
+    """Return faster OCR defaults with environment overrides."""
+    ocr_params = config.get("ocr_params", {})
+    return {
+        "detail": int(os.getenv("OCR_DETAIL", str(ocr_params.get("detail", 0)))),
+        "paragraph": os.getenv("OCR_PARAGRAPH", str(ocr_params.get("paragraph", False))).lower() in {"1", "true", "yes"},
+        "batch_size": int(os.getenv("OCR_BATCH_SIZE", str(max(1, int(ocr_params.get("batch_size", 4)))))),
+        "workers": int(os.getenv("OCR_WORKERS", str(max(0, int(ocr_params.get("workers", 2)))))),
+        "decoder": os.getenv("OCR_DECODER", str(ocr_params.get("decoder", "greedy"))),
+    }
 
 def get_reader():
     """Get or create OCR reader"""
@@ -99,6 +114,22 @@ def allowed_file(filename):
     """Check if file extension is allowed"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def prepare_image_for_ocr(image):
+    """Downscale large images before OCR to reduce processing time."""
+    try:
+        height, width = image.shape[:2]
+        longest_side = max(height, width)
+
+        if longest_side <= MAX_OCR_IMAGE_DIMENSION:
+            return image
+
+        scale = MAX_OCR_IMAGE_DIMENSION / float(longest_side)
+        new_width = max(1, int(width * scale))
+        new_height = max(1, int(height * scale))
+        return cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+    except Exception:
+        return image
+
 def process_image(image_path):
     """Process image with OCR"""
     try:
@@ -108,21 +139,24 @@ def process_image(image_path):
         image = cv2.imread(str(image_path))
         if image is None:
             return {"success": False, "error": "Failed to read image"}
+
+        image = prepare_image_for_ocr(image)
+        ocr_options = get_fast_ocr_options(get_config())
         
         # OCR
-        results = reader.readtext(image, detail=1)
+        results = reader.readtext(
+            image,
+            detail=ocr_options["detail"],
+            paragraph=ocr_options["paragraph"],
+            batch_size=ocr_options["batch_size"],
+            workers=ocr_options["workers"],
+            decoder=ocr_options["decoder"],
+        )
         
         # Extract text
-        texts = []
-        confidence = []
-        
-        for bbox, text, conf in results:
-            if text.strip() and conf >= 0.3:
-                texts.append(text.strip())
-                confidence.append(conf)
+        texts = [text.strip() for text in results if str(text).strip()]
         
         full_text = "\n".join(texts)
-        avg_confidence = sum(confidence) / len(confidence) if confidence else 0
 
         if not full_text.strip():
             return {"success": False, "error": "No text detected in image"}
@@ -130,7 +164,6 @@ def process_image(image_path):
         return {
             "success": True,
             "text": full_text,
-            "confidence": avg_confidence,
             "engine": "easyocr",
             "device": device,
             "format": "image",
@@ -159,6 +192,7 @@ def process_pdf(pdf_path):
     """Process PDF with OCR"""
     try:
         reader, device = get_reader()
+        start_time = time.time()
         
         pdf = pdfium.PdfDocument(pdf_path)
         pages_text = []
@@ -171,17 +205,25 @@ def process_pdf(pdf_path):
                     continue
 
                 # Render page to image
-                bitmap = page.render(scale=3.0)
+                bitmap = page.render(scale=PDF_RENDER_SCALE)
                 pil_image = bitmap.to_pil()
+                pil_image = pil_image.convert("RGB")
+                np_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
+                np_image = prepare_image_for_ocr(np_image)
+                ocr_options = get_fast_ocr_options(get_config())
                 
                 # OCR
-                results = reader.readtext(np.array(pil_image), detail=1)
+                results = reader.readtext(
+                    np_image,
+                    detail=ocr_options["detail"],
+                    paragraph=ocr_options["paragraph"],
+                    batch_size=ocr_options["batch_size"],
+                    workers=ocr_options["workers"],
+                    decoder=ocr_options["decoder"],
+                )
                 
                 # Extract text
-                page_texts = []
-                for bbox, text, conf in results:
-                    if text.strip() and conf >= 0.3:
-                        page_texts.append(text.strip())
+                page_texts = [text.strip() for text in results if str(text).strip()]
                 
                 if page_texts:
                     pages_text.append(f"--- Page {page_num + 1} ---\n" + "\n".join(page_texts))
@@ -204,7 +246,7 @@ def process_pdf(pdf_path):
             "source": "pdf_text_layer" if pages_text and all(entry.startswith("--- Page") for entry in pages_text) else "pdf_ocr",
             "pages": len(pdf),
             "pages_processed": len(pages_text),
-            "processing_time_ms": 0
+            "processing_time_ms": int((time.time() - start_time) * 1000)
         }
         
     except Exception as e:
@@ -269,6 +311,7 @@ def ocr():
         
         if ext == 'pdf':
             result = process_pdf(filepath)
+        
         else:
             result = process_image(filepath)
         
@@ -302,23 +345,21 @@ def ocr_url():
         image = cv2.imdecode(np.frombuffer(response.content, np.uint8), cv2.IMREAD_COLOR)
         
         reader, device = get_reader()
-        results = reader.readtext(image, detail=1)
-        
-        texts = []
-        confidence = []
-        
-        for bbox, text, conf in results:
-            if text.strip() and conf >= 0.3:
-                texts.append(text.strip())
-                confidence.append(conf)
-        
-        full_text = "\n".join(texts)
-        avg_confidence = sum(confidence) / len(confidence) if confidence else 0
+        ocr_options = get_fast_ocr_options(get_config())
+        results = reader.readtext(
+            image,
+            detail=ocr_options["detail"],
+            paragraph=ocr_options["paragraph"],
+            batch_size=ocr_options["batch_size"],
+            workers=ocr_options["workers"],
+            decoder=ocr_options["decoder"],
+        )
+
+        full_text = "\n".join([text.strip() for text in results if str(text).strip()])
         
         return jsonify({
             "success": True,
             "text": full_text,
-            "confidence": avg_confidence,
             "engine": "easyocr",
             "device": device,
             "source": "url"
