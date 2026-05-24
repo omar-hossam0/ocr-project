@@ -5,11 +5,10 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ||
   "http://localhost:4000";
 
-async function proxyAuthRequest(
-  request: NextRequest,
-  pathSegments: string[],
-) {
-  const targetUrl = new URL(`${BACKEND_URL}/api/auth/${pathSegments.join("/")}`);
+async function proxyAuthRequest(request: NextRequest, pathSegments: string[]) {
+  const targetUrl = new URL(
+    `${BACKEND_URL}/api/auth/${pathSegments.join("/")}`,
+  );
   targetUrl.search = request.nextUrl.search;
 
   const headers = new Headers(request.headers);

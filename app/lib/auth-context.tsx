@@ -1,5 +1,12 @@
 "use client";
-import { createContext, useContext, useEffect, useState, useMemo, useCallback } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+} from "react";
 import React from "react";
 
 const BACKEND = "";
@@ -99,50 +106,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(json.user);
   }, []);
 
-  const signUp = useCallback(async (
-    email: string,
-    password: string,
-    displayName?: string,
-  ) => {
-    const normalizedEmail = email.trim().toLowerCase();
-    const normalizedName = (displayName || "").trim();
+  const signUp = useCallback(
+    async (email: string, password: string, displayName?: string) => {
+      const normalizedEmail = email.trim().toLowerCase();
+      const normalizedName = (displayName || "").trim();
 
-    if (!normalizedEmail || !password) {
-      throw new Error("Email and password are required");
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      throw new Error("Please enter a valid email address");
-    }
-    if (password.length < 6) {
-      throw new Error("Password must be at least 6 characters");
-    }
-
-    // Note: Backend sign-up endpoint needs to be implemented
-    const res = await fetch(`${BACKEND}/api/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: normalizedEmail,
-        password,
-        name: normalizedName || normalizedEmail.split("@")[0],
-      }),
-    });
-    const json = await res.json();
-    if (!res.ok || !json.success) {
-      const msg = json?.error || "Registration failed";
-      if (msg.toLowerCase().includes("already")) {
-        throw new Error("This email is already registered");
+      if (!normalizedEmail || !password) {
+        throw new Error("Email and password are required");
       }
-      throw new Error(msg);
-    }
-    setToken(json.token);
-    setUser(json.user);
-  }, []);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        throw new Error("Please enter a valid email address");
+      }
+      if (password.length < 6) {
+        throw new Error("Password must be at least 6 characters");
+      }
+
+      // Note: Backend sign-up endpoint needs to be implemented
+      const res = await fetch(`${BACKEND}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: normalizedEmail,
+          password,
+          name: normalizedName || normalizedEmail.split("@")[0],
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        const msg = json?.error || "Registration failed";
+        if (msg.toLowerCase().includes("already")) {
+          throw new Error("This email is already registered");
+        }
+        throw new Error(msg);
+      }
+      setToken(json.token);
+      setUser(json.user);
+    },
+    [],
+  );
 
   const signInWithGoogle = useCallback(async () => {
     // Google OAuth requires additional backend setup
     // For now, show a message that it's not supported
-    throw new Error("Google Sign-in is not supported in this environment. Please use email/password.");
+    throw new Error(
+      "Google Sign-in is not supported in this environment. Please use email/password.",
+    );
   }, []);
 
   const sendResetPasswordEmail = useCallback(async (email: string) => {
@@ -154,7 +162,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Please enter a valid email address");
     }
     // Backend password reset endpoint needs to be implemented
-    throw new Error("Password reset is not yet implemented. Please contact an admin.");
+    throw new Error(
+      "Password reset is not yet implemented. Please contact an admin.",
+    );
   }, []);
 
   const signOut = useCallback(async () => {
@@ -162,24 +172,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, []);
 
-  const updateUserProfile = useCallback(async (displayName: string, photoURL?: string) => {
-    const token = getToken();
-    if (!token) throw new Error("No user logged in");
+  const updateUserProfile = useCallback(
+    async (displayName: string, photoURL?: string) => {
+      const token = getToken();
+      if (!token) throw new Error("No user logged in");
 
-    const res = await fetch(`${BACKEND}/api/settings/users/me`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ name: displayName, photoURL }),
-    });
-    const json = await res.json();
-    if (!res.ok || !json.success) {
-      throw new Error(json?.error || "Failed to update profile");
-    }
-    setUser((prev) => (prev ? { ...prev, name: displayName, photoURL } : null));
-  }, []);
+      const res = await fetch(`${BACKEND}/api/settings/users/me`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name: displayName, photoURL }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json?.error || "Failed to update profile");
+      }
+      setUser((prev) =>
+        prev ? { ...prev, name: displayName, photoURL } : null,
+      );
+    },
+    [],
+  );
 
   const updateUserPassword = useCallback(async (newPassword: string) => {
     const token = getToken();
@@ -188,7 +203,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Password must be at least 6 characters");
     }
     // Backend password change endpoint needs to be implemented
-    throw new Error("Password change is not yet implemented. Please contact an admin.");
+    throw new Error(
+      "Password change is not yet implemented. Please contact an admin.",
+    );
   }, []);
 
   const refreshUser = useCallback(async () => {
@@ -207,18 +224,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const value = useMemo(() => ({
-    user,
-    loading,
-    signIn,
-    signUp,
-    signInWithGoogle,
-    sendResetPasswordEmail,
-    signOut,
-    updateUserProfile,
-    updateUserPassword,
-    refreshUser,
-  }), [user, loading, signIn, signUp, signInWithGoogle, sendResetPasswordEmail, signOut, updateUserProfile, updateUserPassword, refreshUser]);
+  const value = useMemo(
+    () => ({
+      user,
+      loading,
+      signIn,
+      signUp,
+      signInWithGoogle,
+      sendResetPasswordEmail,
+      signOut,
+      updateUserProfile,
+      updateUserPassword,
+      refreshUser,
+    }),
+    [
+      user,
+      loading,
+      signIn,
+      signUp,
+      signInWithGoogle,
+      sendResetPasswordEmail,
+      signOut,
+      updateUserProfile,
+      updateUserPassword,
+      refreshUser,
+    ],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
