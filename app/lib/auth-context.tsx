@@ -52,6 +52,34 @@ function setToken(token: string | null) {
   }
 }
 
+async function readJsonResponse(response: Response): Promise<{
+  success?: boolean;
+  error?: string;
+  message?: string;
+  token?: string;
+  user?: AuthUser;
+} | null> {
+  const text = await response.text();
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as {
+      success?: boolean;
+      error?: string;
+      message?: string;
+      token?: string;
+      user?: AuthUser;
+    };
+  } catch {
+    return {
+      success: false,
+      error: text,
+    };
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,9 +96,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const res = await fetch(`${BACKEND}/api/auth/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const json = await res.json();
-        if (res.ok && json.success) {
-          setUser(json.user);
+        const json = await readJsonResponse(res);
+        if (res.ok && json?.success) {
+          setUser(json.user ?? null);
         } else {
           // Invalid token, clear it
           setToken(null);
@@ -94,16 +122,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: normalizedEmail, password }),
     });
-    const json = await res.json();
-    if (!res.ok || !json.success) {
+    const json = await readJsonResponse(res);
+      if (!res.ok || !json?.success) {
       const msg = json?.error || "Login failed";
       if (msg.toLowerCase().includes("invalid")) {
         throw new Error("Invalid email or password");
       }
       throw new Error(msg);
     }
-    setToken(json.token);
-    setUser(json.user);
+    setToken(json.token ?? null);
+    setUser(json.user ?? null);
   }, []);
 
   const signUp = useCallback(
@@ -131,16 +159,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           name: normalizedName || normalizedEmail.split("@")[0],
         }),
       });
-      const json = await res.json();
-      if (!res.ok || !json.success) {
+      const json = await readJsonResponse(res);
+      if (!res.ok || !json?.success) {
         const msg = json?.error || "Registration failed";
         if (msg.toLowerCase().includes("already")) {
           throw new Error("This email is already registered");
         }
         throw new Error(msg);
       }
-      setToken(json.token);
-      setUser(json.user);
+      setToken(json.token ?? null);
+      setUser(json.user ?? null);
     },
     [],
   );
@@ -215,9 +243,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await fetch(`${BACKEND}/api/auth/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const json = await res.json();
-      if (res.ok && json.success) {
-        setUser(json.user);
+      const json = await readJsonResponse(res);
+      if (res.ok && json?.success) {
+        setUser(json.user ?? null);
       }
     } catch {
       // Ignore network errors
