@@ -1,8 +1,8 @@
 // Adapter: forward Firestore-style calls to the Express backend (MongoDB)
 // This file keeps the same exported function names used across the frontend
-// but implements them by calling the REST API under NEXT_PUBLIC_BACKEND_URL.
+// but implements them by calling same-origin Next.js API routes.
 
-const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:4000";
+const BACKEND = "";
 
 function authHeaders(): Record<string, string> {
   const token =

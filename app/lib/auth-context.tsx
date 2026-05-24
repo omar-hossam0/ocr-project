@@ -2,7 +2,7 @@
 import { createContext, useContext, useEffect, useState, useMemo, useCallback } from "react";
 import React from "react";
 
-const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+const BACKEND = "";
 
 export interface AuthUser {
   id: string;
