@@ -123,7 +123,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ email: normalizedEmail, password }),
     });
     const json = await readJsonResponse(res);
-      if (!res.ok || !json?.success) {
+    if (!res.ok || !json?.success) {
       const msg = json?.error || "Login failed";
       if (msg.toLowerCase().includes("invalid")) {
         throw new Error("Invalid email or password");
