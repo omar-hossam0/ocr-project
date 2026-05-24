@@ -17,15 +17,15 @@ import {
 import { useAuth } from "@/app/lib/auth-context";
 import { useLanguage } from "@/app/lib/language-context";
 import { useToast } from "@/components/ToastProvider";
-import { 
-  getSettingsLocations, 
+import {
+  getSettingsLocations,
   getSettingsDepartments,
   addFile,
   updateFile,
   getFile,
   runOcr,
   uploadFileToStorage,
-  FileData
+  FileData,
 } from "@/app/lib/firestore";
 import OcrSearchableText from "@/components/OcrSearchableText";
 import ModernSelect from "@/components/ModernSelect";
@@ -55,7 +55,12 @@ async function safeReadJson<T>(response: Response): Promise<{
 }> {
   const rawText = await response.text();
   if (!rawText) {
-    return { ok: response.ok, status: response.status, json: null, rawText: "" };
+    return {
+      ok: response.ok,
+      status: response.status,
+      json: null,
+      rawText: "",
+    };
   }
 
   try {
@@ -154,34 +159,33 @@ export default function UploadPage() {
     }, 1500);
   }, []);
 
-  const runClientOcrFallback = useCallback(
-    async (targetFile: File) => {
-      if (typeof window === "undefined") return "";
+  const runClientOcrFallback = useCallback(async (targetFile: File) => {
+    if (typeof window === "undefined") return "";
 
-      if (_clientTessWorkerCreating) {
+    if (_clientTessWorkerCreating) {
+      _clientTessWorker = await _clientTessWorkerCreating;
+    }
+
+    if (!_clientTessWorker) {
+      _clientTessWorkerCreating = (async () => {
+        const tesseract = await import("tesseract.js");
+        // Keep langs aligned with backend default
+        const worker = (await tesseract.createWorker(
+          "ara+eng",
+        )) as unknown as ClientTessWorker;
+        return worker;
+      })();
+
+      try {
         _clientTessWorker = await _clientTessWorkerCreating;
+      } finally {
+        _clientTessWorkerCreating = null;
       }
+    }
 
-      if (!_clientTessWorker) {
-        _clientTessWorkerCreating = (async () => {
-          const tesseract = await import("tesseract.js");
-          // Keep langs aligned with backend default
-          const worker = (await tesseract.createWorker("ara+eng")) as unknown as ClientTessWorker;
-          return worker;
-        })();
-
-        try {
-          _clientTessWorker = await _clientTessWorkerCreating;
-        } finally {
-          _clientTessWorkerCreating = null;
-        }
-      }
-
-      const result = await _clientTessWorker.recognize(targetFile);
-      return String(result?.data?.text || "").trim();
-    },
-    [],
-  );
+    const result = await _clientTessWorker.recognize(targetFile);
+    return String(result?.data?.text || "").trim();
+  }, []);
 
   const downloadAsTxt = useCallback(() => {
     if (!ocrResult.trim()) return;
@@ -491,90 +495,100 @@ export default function UploadPage() {
         let ocrDevice = "cpu";
         let ocrSource = "";
 
-      try {
-        setOcrProgress(20);
-        const ocrJson = await runOcr(targetFile);
-        
-        setOcrProgress(70);
-        if (ocrJson?.success) {
-          ocrText = (ocrJson?.data?.text || "").trim();
-          ocrEngine = ocrJson?.data?.engine || "tesseract.js";
-          ocrDevice = ocrJson?.data?.device || "cpu";
-          ocrSource = ocrJson?.data?.source || "";
-          setOcrProgress(90);
-        } else {
-          console.warn("OCR returned error:", ocrJson?.error);
+        try {
+          setOcrProgress(20);
+          const ocrJson = await runOcr(targetFile);
+
+          setOcrProgress(70);
+          if (ocrJson?.success) {
+            ocrText = (ocrJson?.data?.text || "").trim();
+            ocrEngine = ocrJson?.data?.engine || "tesseract.js";
+            ocrDevice = ocrJson?.data?.device || "cpu";
+            ocrSource = ocrJson?.data?.source || "";
+            setOcrProgress(90);
+          } else {
+            console.warn("OCR returned error:", ocrJson?.error);
+            setOcrProgress(0);
+          }
+        } catch (ocrErr) {
+          const ocrErrMsg =
+            ocrErr instanceof Error ? ocrErr.message : "OCR failed";
+          console.warn("OCR failed:", ocrErrMsg);
+          setOcrEngineInfo("OCR unavailable");
           setOcrProgress(0);
         }
-      } catch (ocrErr) {
-        const ocrErrMsg = ocrErr instanceof Error ? ocrErr.message : "OCR failed";
-        console.warn("OCR failed:", ocrErrMsg);
-        setOcrEngineInfo("OCR unavailable");
-        setOcrProgress(0);
-      }
 
-      // If server OCR didn't return text (common on Vercel), try client-side OCR for images.
-      if (!ocrText && /^image\//i.test(targetFile.type || "")) {
-        try {
-          setOcrEngineInfo("running browser OCR...");
-          const clientText = await runClientOcrFallback(targetFile);
-          if (clientText) {
-            ocrText = clientText;
-            ocrEngine = "tesseract.js (browser)";
-            ocrDevice = "client";
+        // If server OCR didn't return text (common on Vercel), try client-side OCR for images.
+        if (!ocrText && /^image\//i.test(targetFile.type || "")) {
+          try {
+            setOcrEngineInfo("running browser OCR...");
+            const clientText = await runClientOcrFallback(targetFile);
+            if (clientText) {
+              ocrText = clientText;
+              ocrEngine = "tesseract.js (browser)";
+              ocrDevice = "client";
+            }
+          } catch (clientErr) {
+            const msg =
+              clientErr instanceof Error
+                ? clientErr.message
+                : "Browser OCR failed";
+            console.warn("Browser OCR failed:", msg);
           }
-        } catch (clientErr) {
-          const msg =
-            clientErr instanceof Error ? clientErr.message : "Browser OCR failed";
-          console.warn("Browser OCR failed:", msg);
         }
-      }
 
-      // Show OCR result immediately and STOP processing state for UI
-      if (ocrText) {
-        setOcrResult(ocrText);
-        const engineLabel =
-          ocrSource === "pdf_text_layer"
-            ? "PDF text layer"
-            : ocrSource === "pdf_ocr"
-              ? "PDF OCR"
-              : ocrEngine;
-        setOcrEngineInfo(`${engineLabel} • ${ocrDevice}`);
-        setOcrProgress(100);
-        setProcessing(false); // Stop the spinner immediately
-        showToast("OCR completed successfully!", "success");
-      } else {
-        setOcrResult("(No text detected by OCR)");
-        const engineLabel =
-          ocrSource === "pdf_text_layer"
-            ? "PDF text layer"
-            : ocrSource === "pdf_ocr"
-              ? "PDF OCR"
-              : ocrEngine;
-        setOcrEngineInfo(engineLabel ? `${engineLabel} • no text found` : "OCR unavailable");
-        setOcrProgress(0);
-        setProcessing(false);
-        showToast("OCR failed on server; no text detected", "error");
-      }
-
-      // ── Step 2: Upload to storage + save metadata (background) ──
-      let storageUrl: string | undefined;
-
-      try {
-        const uploadResult = await uploadFileToStorage(
-          targetFile,
-          user.id || user.email || "anonymous",
-          fileName || targetFile.name
-        );
-
-        if (uploadResult && uploadResult.url) {
-          storageUrl = uploadResult.url;
+        // Show OCR result immediately and STOP processing state for UI
+        if (ocrText) {
+          setOcrResult(ocrText);
+          const engineLabel =
+            ocrSource === "pdf_text_layer"
+              ? "PDF text layer"
+              : ocrSource === "pdf_ocr"
+                ? "PDF OCR"
+                : ocrEngine;
+          setOcrEngineInfo(`${engineLabel} • ${ocrDevice}`);
+          setOcrProgress(100);
+          setProcessing(false); // Stop the spinner immediately
+          showToast("OCR completed successfully!", "success");
         } else {
-          console.warn("Storage upload failed (continuing without storage URL)");
+          setOcrResult("(No text detected by OCR)");
+          const engineLabel =
+            ocrSource === "pdf_text_layer"
+              ? "PDF text layer"
+              : ocrSource === "pdf_ocr"
+                ? "PDF OCR"
+                : ocrEngine;
+          setOcrEngineInfo(
+            engineLabel ? `${engineLabel} • no text found` : "OCR unavailable",
+          );
+          setOcrProgress(0);
+          setProcessing(false);
+          showToast("OCR failed on server; no text detected", "error");
         }
-      } catch (storageErr) {
-        console.warn("Storage upload failed (continuing without storage URL):", storageErr);
-      }
+
+        // ── Step 2: Upload to storage + save metadata (background) ──
+        let storageUrl: string | undefined;
+
+        try {
+          const uploadResult = await uploadFileToStorage(
+            targetFile,
+            user.id || user.email || "anonymous",
+            fileName || targetFile.name,
+          );
+
+          if (uploadResult && uploadResult.url) {
+            storageUrl = uploadResult.url;
+          } else {
+            console.warn(
+              "Storage upload failed (continuing without storage URL)",
+            );
+          }
+        } catch (storageErr) {
+          console.warn(
+            "Storage upload failed (continuing without storage URL):",
+            storageErr,
+          );
+        }
 
         // Save file metadata to Firestore
         const savedFileId = await persistFileRecord(targetFile, ocrText, {
@@ -602,12 +616,7 @@ export default function UploadPage() {
         setProcessing(false);
       }
     },
-    [
-      user,
-      persistFileRecord,
-      runClientOcrFallback,
-      showToast,
-    ],
+    [user, persistFileRecord, runClientOcrFallback, showToast],
   );
 
   const handleFileSelect = useCallback((selected: File) => {
@@ -719,15 +728,15 @@ export default function UploadPage() {
       try {
         const [locData, deptData] = await Promise.all([
           getSettingsLocations(),
-          getSettingsDepartments()
+          getSettingsDepartments(),
         ]);
-        
+
         const validLocs = locData || [];
         const validDepts = deptData || [];
-        
+
         setAvailableLocations(validLocs);
         setAvailableDepartments(validDepts);
-        
+
         // Set defaults from loaded data
         if (validLocs.length > 0) {
           setLocation(validLocs[0].name);
@@ -737,7 +746,10 @@ export default function UploadPage() {
         }
       } catch (err) {
         console.error("Failed to fetch options:", err);
-        showToast("Failed to load locations and departments. Please refresh.", "error");
+        showToast(
+          "Failed to load locations and departments. Please refresh.",
+          "error",
+        );
       } finally {
         setLoadingOptions(false);
       }
@@ -865,9 +877,14 @@ export default function UploadPage() {
     <div className="space-y-8">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">{tr("upload.title", "Upload Document")}</h1>
+        <h1 className="text-2xl font-bold text-white">
+          {tr("upload.title", "Upload Document")}
+        </h1>
         <p className="text-gray-400 text-sm mt-1">
-          {tr("upload.description", "Upload paper or digital files and convert them to searchable text")}
+          {tr(
+            "upload.description",
+            "Upload paper or digital files and convert them to searchable text",
+          )}
         </p>
       </div>
 
@@ -948,7 +965,9 @@ export default function UploadPage() {
                     className="border border-white/20 text-gray-300 px-6 py-2.5 rounded-full text-sm font-medium hover:bg-white/10 transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Camera className="w-4 h-4" />
-                    {cameraLoading ? "Starting Camera..." : tr("upload.scan", "Scan")}
+                    {cameraLoading
+                      ? "Starting Camera..."
+                      : tr("upload.scan", "Scan")}
                   </button>
                 </div>
               </>
@@ -957,7 +976,9 @@ export default function UploadPage() {
 
           {/* File details form */}
           <div className="glass-card p-6 space-y-5">
-            <h2 className="font-semibold text-white">{tr("upload.fileDetails", "File Details")}</h2>
+            <h2 className="font-semibold text-white">
+              {tr("upload.fileDetails", "File Details")}
+            </h2>
 
             {error && (
               <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl text-sm">
@@ -1078,7 +1099,7 @@ export default function UploadPage() {
                 )}
               </button>
             </div>
-            
+
             {/* Progress Bar */}
             {processing && ocrProgress > 0 && (
               <div className="mt-4">
@@ -1087,7 +1108,7 @@ export default function UploadPage() {
                   <span>{ocrProgress}%</span>
                 </div>
                 <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
-                  <div 
+                  <div
                     className="bg-sky-500 h-full transition-all duration-300 ease-out"
                     style={{ width: `${ocrProgress}%` }}
                   />
@@ -1117,7 +1138,10 @@ export default function UploadPage() {
               <div className="space-y-4">
                 <OcrSearchableText
                   text={ocrResult}
-                  inputPlaceholder={tr("upload.searchOcr", "Search word or sentence in OCR result...")}
+                  inputPlaceholder={tr(
+                    "upload.searchOcr",
+                    "Search word or sentence in OCR result...",
+                  )}
                   textContainerClassName="bg-white/5 rounded-xl p-4 text-sm text-gray-300 leading-relaxed max-h-80 overflow-y-auto text-start font-sans whitespace-pre-wrap break-words"
                 />
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
