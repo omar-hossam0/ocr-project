@@ -563,7 +563,7 @@ export default function UploadPage() {
       try {
         const uploadResult = await uploadFileToStorage(
           targetFile,
-          user.uid || user.email || "anonymous",
+          user.id || user.email || "anonymous",
           fileName || targetFile.name
         );
 
