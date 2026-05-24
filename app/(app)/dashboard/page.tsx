@@ -14,6 +14,8 @@ import {
   FolderOpen,
 } from "lucide-react";
 import WelcomeBanner from "./WelcomeBanner";
+import { useLanguage } from "@/app/lib/language-context";
+import LanguageToggle from "@/components/LanguageToggle";
 import {
   fetchFilesClient,
   getFilesCacheSnapshot,
@@ -46,21 +48,24 @@ function formatDate(value: FileRecord["uploadedAt"]): string {
 }
 
 const SHORTCUTS = [
-  { label: "Upload File", href: "/upload", icon: Upload, color: "bg-sky-500" },
+  { label: "Upload File", key: "dashboard.uploadFile" as const, href: "/upload", icon: Upload, color: "bg-sky-500" },
   {
     label: "Search Files",
+    key: "nav.search" as const,
     href: "/search",
     icon: Search,
     color: "bg-green-500",
   },
   {
     label: "Tracking",
+    key: "nav.tracking" as const,
     href: "/tracking",
     icon: Activity,
     color: "bg-purple-500",
   },
   {
     label: "Settings",
+    key: "nav.settings" as const,
     href: "/settings",
     icon: Settings,
     color: "bg-gray-700",
@@ -68,6 +73,7 @@ const SHORTCUTS = [
 ];
 
 export default function DashboardPage() {
+  const { tr, locale } = useLanguage();
   const cached = getFilesCacheSnapshot<FileRecord>();
   const [files, setFiles] = useState<FileRecord[]>(cached || []);
   const [loading, setLoading] = useState(!cached);
@@ -131,25 +137,25 @@ export default function DashboardPage() {
 
     return [
       {
-        label: "Total Files",
+        label: tr("dashboard.totalFiles", "Total Files"),
         value: String(files.length),
         icon: FolderOpen,
         color: "bg-sky-500/20 text-sky-400",
       },
       {
-        label: "New This Week",
+        label: tr("dashboard.newThisWeek", "New This Week"),
         value: String(thisWeek),
         icon: TrendingUp,
         color: "bg-green-500/20 text-green-400",
       },
       {
-        label: "Failed OCR",
+        label: tr("dashboard.failedOcr", "Failed OCR"),
         value: String(files.filter((file) => file.status === "failed").length),
         icon: AlertTriangle,
         color: "bg-amber-500/20 text-amber-400",
       },
       {
-        label: "Pending OCR",
+        label: tr("dashboard.pendingOcr", "Pending OCR"),
         value: String(pending),
         icon: Clock,
         color: "bg-purple-500/20 text-purple-400",
@@ -161,25 +167,27 @@ export default function DashboardPage() {
   const shortcuts = useMemo(() => SHORTCUTS, []);
 
   return (
-    <div className="space-y-8">
-      {/* Welcome Banner */}
+    <div className="space-y-8 pb-10">
       <WelcomeBanner />
-
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Dashboard</h1>
-          <p className="text-gray-400 text-sm mt-1">
-            Overview of your document archive
+          <h1 className="text-3xl font-bold text-white tracking-tight">
+            {tr("dashboard.title", "Dashboard")}
+          </h1>
+          <p className="text-gray-400 mt-1">
+            {tr("dashboard.description", "Overview of your document archive")}
           </p>
         </div>
-        <Link
-          href="/upload"
-          className="inline-flex items-center gap-2 bg-sky-500 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-sky-400 transition w-fit"
-        >
-          <Upload className="w-4 h-4" />
-          Upload File
-        </Link>
+        <div className="flex items-center gap-3 self-start sm:self-center">
+          <LanguageToggle />
+          <Link
+            href="/upload"
+            className="bg-sky-500 hover:bg-sky-400 text-white px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-sky-500/25 flex items-center gap-2 group"
+          >
+            <Upload className="w-4 h-4 group-hover:-translate-y-0.5 transition-transform" />
+            {tr("dashboard.uploadFile", "Upload File")}
+          </Link>
+        </div>
       </div>
 
       {/* Quick Search */}
@@ -187,7 +195,7 @@ export default function DashboardPage() {
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
         <input
           type="text"
-          placeholder="Search for any document, keyword, or location..."
+          placeholder={tr("dashboard.searchPlaceholder", "Search for any document, keyword, or location...")}
           className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-white/15 bg-white/10 backdrop-blur-sm text-white placeholder-gray-500 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500/50 transition"
         />
       </div>
@@ -223,7 +231,7 @@ export default function DashboardPage() {
               <item.icon className="w-5 h-5" />
             </div>
             <span className="text-sm font-medium text-gray-300 group-hover:text-white">
-              {item.label}
+              {tr(item.key, item.label)}
             </span>
           </Link>
         ))}
@@ -232,12 +240,12 @@ export default function DashboardPage() {
       {/* Recent Files */}
       <div className="glass-card overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-          <h2 className="font-semibold text-white">Recent Files</h2>
+          <h2 className="font-semibold text-white">{tr("dashboard.recentFiles", "Recent Files")}</h2>
           <Link
             href="/search"
             className="text-sm text-sky-400 hover:text-sky-300 flex items-center gap-1"
           >
-            View All <ArrowRight className="w-3 h-3" />
+            {tr("dashboard.viewAll", "View All")} <ArrowRight className="w-3 h-3" />
           </Link>
         </div>
         <div className="divide-y divide-white/5">

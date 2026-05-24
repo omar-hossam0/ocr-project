@@ -88,10 +88,12 @@ export async function POST(request: NextRequest) {
               }, { status: 500 }));
             }
           } catch (parseError) {
+            const parseErrorMessage =
+              parseError instanceof Error ? parseError.message : String(parseError);
             resolve(NextResponse.json({
               success: false,
               error: "Failed to parse OCR result",
-              details: { stdout: stdout, stderr, parseError: parseError.message },
+              details: { stdout: stdout, stderr, parseError: parseErrorMessage },
             }, { status: 500 }));
           }
         } else {

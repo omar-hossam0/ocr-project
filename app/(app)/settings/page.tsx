@@ -15,17 +15,22 @@ import {
   Clock,
   Loader2,
 } from "lucide-react";
+import type { TranslationKey } from "@/app/lib/translations";
+import { useLanguage } from "@/app/lib/language-context";
 import { useToast } from "@/components/ToastProvider";
 
 type SettingsLocation = {
   id: string;
   name: string;
+  nameAr?: string;
   type: string;
+  typeAr?: string;
 };
 
 type SettingsDepartment = {
   id: string;
   name: string;
+  nameAr?: string;
   filesCount?: number;
 };
 
@@ -69,6 +74,7 @@ function roleBadgeClass(role: UserRole) {
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("locations");
+  const { tr, locale } = useLanguage();
   const { showToast, showConfirmToast } = useToast();
 
   const [loading, setLoading] = useState(true);
@@ -157,20 +163,25 @@ export default function SettingsPage() {
   }, [loadData]);
 
   const handleAddLocation = useCallback(async () => {
-    const name = window.prompt("Location name", "");
+    const name = window.prompt(tr("common.locationNamePrompt", "Location name (English)"), "");
     if (!name) return;
+    const nameAr = window.prompt("Location name (Arabic)", name);
+    if (!nameAr) return;
+    
     const type = window.prompt(
-      "Location type (Cabinet/Office/Storage)",
+      tr("common.locationTypePrompt", "Location type (Cabinet/Office/Storage) - English"),
       "Cabinet",
     );
     if (!type) return;
+    const typeAr = window.prompt("Location type (Arabic)", "خزانة");
+    if (!typeAr) return;
 
     setBusyKey("add-location");
     try {
       const response = await fetch("/api/settings/locations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, type }),
+        body: JSON.stringify({ name, nameAr, type, typeAr }),
       });
       const json = await response.json();
       if (!response.ok || !json.success) {
@@ -189,17 +200,22 @@ export default function SettingsPage() {
 
   const handleEditLocation = useCallback(
     async (location: SettingsLocation) => {
-      const name = window.prompt("Location name", location.name);
+      const name = window.prompt("Location name (English)", location.name);
       if (!name) return;
-      const type = window.prompt("Location type", location.type);
+      const nameAr = window.prompt("Location name (Arabic)", location.nameAr || name);
+      if (!nameAr) return;
+      
+      const type = window.prompt("Location type (English)", location.type);
       if (!type) return;
+      const typeAr = window.prompt("Location type (Arabic)", location.typeAr || "خزانة");
+      if (!typeAr) return;
 
       setBusyKey(`edit-location-${location.id}`);
       try {
         const response = await fetch(`/api/settings/locations/${location.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, type }),
+          body: JSON.stringify({ name, nameAr, type, typeAr }),
         });
         const json = await response.json();
         if (!response.ok || !json.success) {
@@ -249,15 +265,17 @@ export default function SettingsPage() {
   );
 
   const handleAddDepartment = useCallback(async () => {
-    const name = window.prompt("Department name", "");
+    const name = window.prompt(tr("common.departmentNamePrompt", "Department name (English)"), "");
     if (!name) return;
+    const nameAr = window.prompt("Department name (Arabic)", name);
+    if (!nameAr) return;
 
     setBusyKey("add-department");
     try {
       const response = await fetch("/api/settings/departments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, nameAr }),
       });
       const json = await response.json();
       if (!response.ok || !json.success) {
@@ -276,8 +294,10 @@ export default function SettingsPage() {
 
   const handleEditDepartment = useCallback(
     async (department: SettingsDepartment) => {
-      const name = window.prompt("Department name", department.name);
+      const name = window.prompt("Department name (English)", department.name);
       if (!name) return;
+      const nameAr = window.prompt("Department name (Arabic)", department.nameAr || name);
+      if (!nameAr) return;
 
       setBusyKey(`edit-department-${department.id}`);
       try {
@@ -286,7 +306,7 @@ export default function SettingsPage() {
           {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name }),
+            body: JSON.stringify({ name, nameAr }),
           },
         );
         const json = await response.json();
@@ -371,41 +391,47 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Settings</h1>
+        <h1 className="text-2xl font-bold text-white">{tr("settings.title", "Settings")}</h1>
         <p className="text-gray-400 text-sm mt-1">
-          Manage your system, locations, departments, and users
+          {tr("settings.description", "Manage your system, locations, departments, and users")}
         </p>
       </div>
 
       <div className="flex gap-1 bg-white/5 rounded-2xl p-1 overflow-x-auto border border-white/10">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => handleTabChange(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition whitespace-nowrap ${activeTab === tab.id ? "bg-sky-500 text-white" : "text-gray-400 hover:text-white hover:bg-white/10"}`}
-          >
-            <tab.icon className="w-4 h-4" /> {tab.label}
-          </button>
-        ))}
+        {tabs.map((tab) => {
+          const tabKey =
+            tab.id === "locations"
+              ? ("settings.storageLocations" as const)
+              : ("settings." + tab.id as TranslationKey);
+          return (
+            <button
+              key={tab.id}
+              onClick={() => handleTabChange(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition whitespace-nowrap ${activeTab === tab.id ? "bg-sky-500 text-white" : "text-gray-400 hover:text-white hover:bg-white/10"}`}
+            >
+              <tab.icon className="w-4 h-4" /> {tr(tabKey, tab.label)}
+            </button>
+          );
+        })}
       </div>
 
       {loading && (
         <div className="glass-card p-8 flex items-center justify-center gap-3 text-gray-300">
           <Loader2 className="w-5 h-5 animate-spin" />
-          Loading settings...
+          {tr("common.loadingSettings", "Loading settings...")}
         </div>
       )}
 
       {activeTab === "locations" && !loading && (
         <div className="glass-card">
           <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-            <h2 className="font-semibold text-white">Storage Locations</h2>
+            <h2 className="font-semibold text-white">{tr("settings.addLocationTitle", "Storage Locations")}</h2>
             <button
               onClick={handleAddLocation}
               disabled={!!busyKey}
               className="inline-flex items-center gap-2 bg-sky-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-sky-400 transition disabled:opacity-60"
             >
-              <Plus className="w-4 h-4" /> Add Location
+              <Plus className="w-4 h-4" /> {tr("settings.addLocation", "Add Location")}
             </button>
           </div>
 
@@ -420,8 +446,12 @@ export default function SettingsPage() {
                     <MapPin className="w-4 h-4 text-sky-400" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-white">{loc.name}</p>
-                    <p className="text-xs text-gray-500">{loc.type}</p>
+                    <p className="text-sm font-medium text-white">
+                      {locale === "ar" ? loc.nameAr || loc.name : loc.name}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {locale === "ar" ? loc.typeAr || loc.type : loc.type}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -444,7 +474,7 @@ export default function SettingsPage() {
             ))}
             {!locations.length && (
               <div className="px-6 py-8 text-sm text-gray-500 text-center">
-                No locations yet.
+                {tr("common.noLocations", "No locations yet.")}
               </div>
             )}
           </div>
@@ -454,13 +484,13 @@ export default function SettingsPage() {
       {activeTab === "departments" && !loading && (
         <div className="glass-card">
           <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-            <h2 className="font-semibold text-white">Departments</h2>
+            <h2 className="font-semibold text-white">{tr("settings.addDepartmentTitle", "Departments")}</h2>
             <button
               onClick={handleAddDepartment}
               disabled={!!busyKey}
               className="inline-flex items-center gap-2 bg-sky-500 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-sky-400 transition disabled:opacity-60"
             >
-              <Plus className="w-4 h-4" /> Add Department
+              <Plus className="w-4 h-4" /> {tr("settings.addDepartment", "Add Department")}
             </button>
           </div>
 
@@ -476,11 +506,10 @@ export default function SettingsPage() {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-white">
-                      {dept.name}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {dept.filesCount || 0} files
-                    </p>
+                      {locale === "ar" ? dept.nameAr || dept.name : dept.name}
+                    </p>                      <p className="text-xs text-gray-500">
+                        {dept.filesCount || 0} {tr("common.files", "files")}
+                      </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -503,7 +532,7 @@ export default function SettingsPage() {
             ))}
             {!departments.length && (
               <div className="px-6 py-8 text-sm text-gray-500 text-center">
-                No departments yet.
+                {tr("common.noDepartments", "No departments yet.")}
               </div>
             )}
           </div>
@@ -513,7 +542,7 @@ export default function SettingsPage() {
       {activeTab === "users" && !loading && (
         <div className="glass-card">
           <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-            <h2 className="font-semibold text-white">Users</h2>
+            <h2 className="font-semibold text-white">{tr("settings.users", "Users")}</h2>
             <span className="text-xs text-gray-400">
               Synced from real user accounts
             </span>
@@ -550,7 +579,7 @@ export default function SettingsPage() {
             ))}
             {!users.length && (
               <div className="px-6 py-8 text-sm text-gray-500 text-center">
-                No registered users yet.
+                {tr("common.noUsers", "No registered users yet.")}
               </div>
             )}
           </div>
@@ -560,12 +589,10 @@ export default function SettingsPage() {
       {activeTab === "system" && !loading && (
         <div className="space-y-6">
           <div className="glass-card p-6 space-y-6">
-            <h2 className="font-semibold text-white">System Settings</h2>
+            <h2 className="font-semibold text-white">{tr("settings.systemSettings", "System Settings")}</h2>
             <div className="space-y-5">
               <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-1.5">
-                  <Clock className="w-4 h-4 text-gray-500" /> File Expiration
-                  Period (days)
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-1.5">                    <Clock className="w-4 h-4 text-gray-500" /> {tr("settings.fileExpiration", "File Expiration Period (days)")}
                 </label>
                 <input
                   type="number"
@@ -581,9 +608,7 @@ export default function SettingsPage() {
               </div>
 
               <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-1.5">
-                  <Bell className="w-4 h-4 text-gray-500" /> Notification
-                  Settings
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-1.5">                    <Bell className="w-4 h-4 text-gray-500" /> {tr("settings.notifications", "Notification Settings")}
                 </label>
                 <div className="space-y-3 mt-2">
                   <label className="flex items-center gap-3 cursor-pointer">
@@ -599,7 +624,7 @@ export default function SettingsPage() {
                       className="w-4 h-4 rounded border-white/20 text-sky-500 focus:ring-sky-500 bg-white/10"
                     />
                     <span className="text-sm text-gray-300">
-                      Notify on file expiration
+                      {tr("settings.notifyExpiration", "Notify on file expiration")}
                     </span>
                   </label>
 
@@ -616,7 +641,7 @@ export default function SettingsPage() {
                       className="w-4 h-4 rounded border-white/20 text-sky-500 focus:ring-sky-500 bg-white/10"
                     />
                     <span className="text-sm text-gray-300">
-                      Notify on file checkout
+                      {tr("settings.notifyCheckout", "Notify on file checkout")}
                     </span>
                   </label>
 
@@ -633,16 +658,14 @@ export default function SettingsPage() {
                       className="w-4 h-4 rounded border-white/20 text-sky-500 focus:ring-sky-500 bg-white/10"
                     />
                     <span className="text-sm text-gray-300">
-                      Daily summary email
+                      {tr("settings.dailySummary", "Daily summary email")}
                     </span>
                   </label>
                 </div>
               </div>
 
               <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-1.5">
-                  <Shield className="w-4 h-4 text-gray-500" /> Max Upload Size
-                  (MB)
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-1.5">                    <Shield className="w-4 h-4 text-gray-500" /> {tr("settings.maxUploadSize", "Max Upload Size (MB)")}
                 </label>
                 <input
                   type="number"
@@ -668,7 +691,7 @@ export default function SettingsPage() {
               ) : (
                 <Save className="w-4 h-4" />
               )}
-              Save Settings
+              {tr("settings.saveSettings", "Save Settings")}
             </button>
           </div>
         </div>

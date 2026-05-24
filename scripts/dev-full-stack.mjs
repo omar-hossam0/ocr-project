@@ -96,11 +96,21 @@ async function waitForBackend(maxAttempts = 30) {
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const response = await fetch('http://localhost:4000/api/health');
-      if (response.ok) {
-        const data = await response.json();
+      const bodyText = await response.clone().text().catch(() => '');
+      const isDegraded =
+        bodyText.includes('"status":"degraded"') ||
+        bodyText.includes('"mongodb":false');
+
+      if (response.ok || isDegraded) {
         log('✅ Backend is ready!', 'green');
-        log(`   MongoDB: ${data.mongodb ? '✅ Connected' : '❌ Not connected'}`, 
-            data.mongodb ? 'green' : 'red');
+        const mongodbReady = bodyText.includes('"mongodb":true');
+        log(
+          `   MongoDB: ${mongodbReady ? '✅ Connected' : '❌ Not connected'}`,
+          mongodbReady ? 'green' : 'red',
+        );
+        if (isDegraded) {
+          log('   Backend is running without MongoDB; database-backed routes remain disabled.', 'yellow');
+        }
         return true;
       }
     } catch (error) {

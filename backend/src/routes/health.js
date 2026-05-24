@@ -8,6 +8,7 @@ router.get("/", async (_req, res) => {
     return res.status(503).json({
       success: false,
       status: "degraded",
+      mongodb: false,
       checks: {
         MongoDB: "not connected",
         "Last Check": new Date().toISOString(),
@@ -23,6 +24,7 @@ router.get("/", async (_req, res) => {
     return res.json({
       success: true,
       status: "healthy",
+      mongodb: true,
       checks: {
         MongoDB: "ok",
         "Last Check": new Date().toISOString(),

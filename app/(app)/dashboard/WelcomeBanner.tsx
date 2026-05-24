@@ -4,9 +4,11 @@ import { useEffect, useState, useMemo } from "react";
 import React from "react";
 import { useAuth } from "@/app/lib/auth-context";
 import { getUserProfile, UserProfile } from "@/app/lib/firestore";
+import { useLanguage } from "@/app/lib/language-context";
 
 function WelcomeBannerContent() {
   const { user } = useAuth();
+  const { tr } = useLanguage();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -37,12 +39,10 @@ function WelcomeBannerContent() {
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
-    return hour < 12
-      ? "Good morning"
-      : hour < 17
-        ? "Good afternoon"
-        : "Good evening";
-  }, []);
+    if (hour < 12) return tr("dashboard.goodMorning", "Good morning");
+    if (hour < 17) return tr("dashboard.goodAfternoon", "Good afternoon");
+    return tr("dashboard.goodEvening", "Good evening");
+  }, [tr]);
 
   return (
     <Link
@@ -71,7 +71,7 @@ function WelcomeBannerContent() {
 
       {/* Arrow hint */}
       <span className="text-gray-600 group-hover:text-gray-400 transition text-xs">
-        Edit profile →
+        {tr("dashboard.editProfile", "Edit profile")} →
       </span>
     </Link>
   );

@@ -142,7 +142,7 @@ function normalizeRemoteEndpoint() {
 }
 
 // Local OCR server for fast processing (pre-loaded EasyOCR)
-const LOCAL_OCR_SERVER = "http://localhost:5000";
+const LOCAL_OCR_SERVER = "http://127.0.0.1:5000";
 
 async function runLocalOcrServer(
   uploaded: File,

@@ -114,8 +114,19 @@ async function waitForService(name, url, maxAttempts = 30) {
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const response = await fetch(url);
-      if (response.ok) {
+      const bodyText = await response.clone().text().catch(() => "");
+      const isDegraded =
+        bodyText.includes('"status":"degraded"') ||
+        bodyText.includes('"mongodb":false');
+
+      if (response.ok || isDegraded) {
         log(`✅ ${name} is ready!`, "green");
+        if (isDegraded) {
+          log(
+            "   Backend is running without MongoDB; API routes depending on the database will return 503.",
+            "yellow",
+          );
+        }
         return true;
       }
     } catch (error) {
@@ -133,7 +144,15 @@ async function waitForService(name, url, maxAttempts = 30) {
 async function isServiceHealthy(url) {
   try {
     const response = await fetch(url);
-    return response.ok;
+    if (response.ok) {
+      return true;
+    }
+
+    const bodyText = await response.clone().text().catch(() => "");
+    return (
+      bodyText.includes('"status":"degraded"') ||
+      bodyText.includes('"mongodb":false')
+    );
   } catch {
     return false;
   }
@@ -249,7 +268,14 @@ async function main() {
     "blue",
   );
 
-  await waitForService("OCR Model Server", "http://localhost:5000/health", 30);
+  const ocrReady = await waitForService(
+    "OCR Model Server",
+    "http://localhost:5000/health",
+    30,
+  );
+  if (!ocrReady) {
+    process.exit(1);
+  }
 
   // Start Frontend after OCR is confirmed ready
   const frontendProc = startProcess(
@@ -260,7 +286,10 @@ async function main() {
     "cyan",
   );
 
-  await waitForService("Frontend", "http://localhost:3000");
+  const frontendReady = await waitForService("Frontend", "http://localhost:3000");
+  if (!frontendReady) {
+    process.exit(1);
+  }
 
   // Success
   logSection("✅ ALL SERVICES RUNNING!");

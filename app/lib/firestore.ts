@@ -2,7 +2,7 @@
 // This file keeps the same exported function names used across the frontend
 // but implements them by calling the REST API under NEXT_PUBLIC_BACKEND_URL.
 
-const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:4000";
 
 function authHeaders(): Record<string, string> {
   const token =
@@ -51,7 +51,7 @@ export async function addFile(fileData: FileData) {
     const json = await res.json();
     if (!res.ok) throw new Error(json?.error || "Failed to add file");
     clearFilesCache();
-    return json.id;
+    return json.data?.id || json.id;
   } catch (err) {
     console.error("Error addFile -> backend:", err);
     throw err;
@@ -377,6 +377,32 @@ export async function uploadFileToStorage(
       error instanceof Error ? error.message : "Failed to upload file";
     console.error("Error uploading file:", error);
     throw new Error(errorMessage);
+  }
+}
+
+/**
+ * ✅ Run OCR on a file using the backend service
+ */
+export async function runOcr(file: File) {
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const res = await fetch(`${BACKEND}/api/ocr`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "x-ocr-js-fallback": "1",
+      },
+      body: formData,
+    });
+
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error || "OCR failed");
+    return json;
+  } catch (err) {
+    console.error("Error runOcr -> backend:", err);
+    throw err;
   }
 }
 

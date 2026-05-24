@@ -78,6 +78,10 @@ export async function POST(request: Request) {
         const filename = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
         const key = `uploads/${uniqueSuffix}-${filename}`;
 
+        if (!s3Client) {
+          throw new Error("S3 client not initialized");
+        }
+
         const command = new PutObjectCommand({
           Bucket: process.env.S3_BUCKET!,
           Key: key,

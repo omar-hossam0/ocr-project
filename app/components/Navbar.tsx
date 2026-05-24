@@ -5,51 +5,54 @@ import { useRouter } from "next/navigation";
 import { gsap } from "gsap";
 import { GoArrowUpRight } from "react-icons/go";
 import BrandLogo from "@/components/BrandLogo";
-
-const NAV_ITEMS = [
-  {
-    label: "Product",
-    bgColor: "#0a1628",
-    textColor: "#fff",
-    links: [
-      { label: "Features", href: "/#features", ariaLabel: "Product Features" },
-      {
-        label: "How it Works",
-        href: "/#how-it-works",
-        ariaLabel: "How DocuMind Works",
-      },
-      {
-        label: "Industries",
-        href: "/#industries",
-        ariaLabel: "Industries we serve",
-      },
-    ],
-  },
-  {
-    label: "App",
-    bgColor: "#0d1f3c",
-    textColor: "#fff",
-    links: [
-      { label: "Dashboard", href: "/dashboard", ariaLabel: "Go to Dashboard" },
-      { label: "Upload", href: "/upload", ariaLabel: "Upload a document" },
-      { label: "Search", href: "/search", ariaLabel: "Search documents" },
-    ],
-  },
-  {
-    label: "Account",
-    bgColor: "#0f1e38",
-    textColor: "#fff",
-    links: [
-      { label: "Settings", href: "/settings", ariaLabel: "Account Settings" },
-      { label: "Tracking", href: "/tracking", ariaLabel: "Document Tracking" },
-    ],
-  },
-];
+import LanguageToggle from "@/components/LanguageToggle";
+import { useLanguage } from "@/app/lib/language-context";
 
 const Navbar = React.memo(function Navbar() {
   const router = useRouter();
+  const { tr } = useLanguage();
   const [isOpen, setIsOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  
+  const NAV_ITEMS = [
+    {
+      label: tr("nav.product", "Product"),
+      bgColor: "#0a1628",
+      textColor: "#fff",
+      links: [
+        { label: tr("nav.features", "Features"), href: "/#features", ariaLabel: "Product Features" },
+        {
+          label: tr("nav.howItWorks", "How it Works"),
+          href: "/#how-it-works",
+          ariaLabel: "How DocuMind Works",
+        },
+        {
+          label: tr("nav.industries", "Industries"),
+          href: "/#industries",
+          ariaLabel: "Industries we serve",
+        },
+      ],
+    },
+    {
+      label: tr("nav.app", "App"),
+      bgColor: "#0d1f3c",
+      textColor: "#fff",
+      links: [
+        { label: tr("nav.dashboard", "Dashboard"), href: "/dashboard", ariaLabel: "Go to Dashboard" },
+        { label: tr("nav.upload", "Upload"), href: "/upload", ariaLabel: "Upload a document" },
+        { label: tr("nav.search", "Search"), href: "/search", ariaLabel: "Search documents" },
+      ],
+    },
+    {
+      label: tr("nav.account", "Account"),
+      bgColor: "#0f1e38",
+      textColor: "#fff",
+      links: [
+        { label: tr("nav.settings", "Settings"), href: "/settings", ariaLabel: "Account Settings" },
+        { label: tr("nav.tracking", "Tracking"), href: "/tracking", ariaLabel: "Document Tracking" },
+      ],
+    },
+  ];
   const navRef = useRef<HTMLDivElement | null>(null);
   const cardsRef = useRef<HTMLDivElement[]>([]);
   const tlRef = useRef<gsap.core.Timeline | null>(null);
@@ -206,13 +209,16 @@ const Navbar = React.memo(function Navbar() {
             <BrandLogo size="sm" showSubtitle={false} />
           </Link>
 
-          {/* CTA button */}
-          <button
-            onClick={handleAuthAction}
-            className="hidden md:inline-flex items-center h-[38px] px-5 rounded-lg text-xs font-semibold bg-sky-500 text-white hover:bg-sky-400 transition-colors"
-          >
-            Get Started →
-          </button>
+          {/* CTA & Language button */}
+          <div className="flex items-center gap-3 order-3 md:order-none">
+            <LanguageToggle />
+            <button
+              onClick={handleAuthAction}
+              className="hidden md:inline-flex items-center h-[38px] px-5 rounded-lg text-xs font-semibold bg-sky-500 text-white hover:bg-sky-400 transition-colors"
+            >
+              {tr("nav.getStarted", "Get Started")} →
+            </button>
+          </div>
         </div>
 
         {/* Cards content */}

@@ -18,6 +18,7 @@ import {
   fetchFilesClient,
   getFilesCacheSnapshot,
 } from "@/app/lib/client-files-cache";
+import { useLanguage } from "@/app/lib/language-context";
 import { useToast } from "@/components/ToastProvider";
 
 type SearchFile = {
@@ -46,6 +47,7 @@ function formatDate(value: SearchFile["uploadedAt"]) {
 }
 
 export default function SearchPage() {
+  const { tr } = useLanguage();
   const { showToast, showConfirmToast } = useToast();
   const cached = getFilesCacheSnapshot<SearchFile>();
   const [allFiles, setAllFiles] = useState<SearchFile[]>(cached || []);
@@ -165,9 +167,9 @@ export default function SearchPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Search Documents</h1>
+        <h1 className="text-2xl font-bold text-white">{tr("search.title", "Search Documents")}</h1>
         <p className="text-gray-400 text-sm mt-1">
-          Find any document or keyword across your archive
+          {tr("search.description", "Find any document or keyword across your archive")}
         </p>
       </div>
 
@@ -177,7 +179,7 @@ export default function SearchPage() {
           <SearchIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
           <input
             type="text"
-            placeholder="Search by filename, keyword, or location..."
+            placeholder={tr("search.searchPlaceholder", "Search by filename, keyword, or location...")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-white/15 bg-white/10 backdrop-blur-sm text-white placeholder-gray-500 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500/50 transition"
@@ -200,7 +202,7 @@ export default function SearchPage() {
           }`}
         >
           <Filter className="w-4 h-4" />
-          Filters
+          {tr("search.filters", "Filters")}
         </button>
       </div>
 
@@ -209,7 +211,7 @@ export default function SearchPage() {
         <div className="glass-card p-5 flex flex-wrap gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1.5">
-              File Type
+              {tr("search.fileType", "File Type")}
             </label>
             <select
               value={typeFilter}
@@ -225,7 +227,7 @@ export default function SearchPage() {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1.5">
-              Department
+              {tr("upload.department", "Department")}
             </label>
             <select
               value={deptFilter}
@@ -242,7 +244,7 @@ export default function SearchPage() {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1.5">
-              Date From
+              {tr("search.dateFrom", "Date From")}
             </label>
             <input
               type="date"
@@ -254,7 +256,7 @@ export default function SearchPage() {
 
       {/* Results count */}
       <p className="text-sm text-gray-400">
-        {loading ? "Loading..." : `${filtered.length} results found`}
+        {loading ? tr("common.loading", "Loading...") : `${filtered.length} ${tr("search.results", "results found")}`}
       </p>
 
       {/* Results */}
@@ -332,9 +334,9 @@ export default function SearchPage() {
         {filtered.length === 0 && (
           <div className="bg-white/5 rounded-2xl border border-white/10 p-12 text-center">
             <SearchIcon className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400 font-medium">No results found</p>
+            <p className="text-gray-400 font-medium">{tr("search.noResults", "No results found")}</p>
             <p className="text-sm text-gray-500 mt-1">
-              Try different keywords or adjust filters
+              {tr("search.noResultsDesc", "Try different keywords or adjust filters")}
             </p>
           </div>
         )}

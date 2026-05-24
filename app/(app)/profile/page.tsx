@@ -13,6 +13,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useAuth } from "@/app/lib/auth-context";
+import { useLanguage } from "@/app/lib/language-context";
 import {
   getUserProfile,
   saveUserProfile,
@@ -22,6 +23,7 @@ import {
 
 export default function ProfilePage() {
   const { user, updateUserProfile, refreshUser } = useAuth();
+  const { tr } = useLanguage();
 
   const [displayName, setDisplayName] = useState("");
   const [phone, setPhone] = useState("");
@@ -211,9 +213,9 @@ export default function ProfilePage() {
     <div className="space-y-8 max-w-3xl">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Profile</h1>
+        <h1 className="text-2xl font-bold text-white">{tr("profile.title", "Profile")}</h1>
         <p className="text-gray-400 text-sm mt-1">
-          Manage your personal information and account settings
+          {tr("profile.description", "Manage your personal information and account settings")}
         </p>
       </div>
 
@@ -306,7 +308,7 @@ export default function ProfilePage() {
           {/* Display Name */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              Display Name
+              {tr("profile.displayName", "Display Name")}
             </label>
             <div className="relative">
               <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
@@ -323,7 +325,7 @@ export default function ProfilePage() {
           {/* Email (read-only) */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              Email Address
+              {tr("profile.email", "Email Address")}
             </label>
             <div className="relative">
               <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
@@ -339,7 +341,7 @@ export default function ProfilePage() {
           {/* Phone */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              Phone Number
+              {tr("profile.phone", "Phone Number")}
             </label>
             <div className="relative">
               <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
@@ -356,7 +358,7 @@ export default function ProfilePage() {
           {/* Department */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              Department
+              {tr("profile.department", "Department")}
             </label>
             <div className="relative">
               <Building2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
@@ -378,7 +380,7 @@ export default function ProfilePage() {
           {/* Role */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              Role
+              {tr("profile.role", "Role")}
             </label>
             <div className="relative">
               <Shield className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
@@ -397,7 +399,7 @@ export default function ProfilePage() {
           {/* Bio — full width */}
           <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-300 mb-1.5">
-              Bio
+              {tr("profile.bio", "Bio")}
             </label>
             <textarea
               value={bio}
@@ -421,7 +423,7 @@ export default function ProfilePage() {
             ) : (
               <Save className="w-4 h-4" />
             )}
-            {saving ? "Saving..." : "Save Profile"}
+            {saving ? tr("profile.saving", "Saving...") : tr("profile.saveProfile", "Save Profile")}
           </button>
         </div>
       </div>

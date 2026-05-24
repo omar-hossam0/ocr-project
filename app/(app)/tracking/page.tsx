@@ -15,6 +15,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useAuth } from "@/app/lib/auth-context";
+import { useLanguage } from "@/app/lib/language-context";
 import { useToast } from "@/components/ToastProvider";
 
 type FileRecord = {
@@ -91,6 +92,7 @@ function actionBadge(action: TrackingAction): string {
 
 export default function TrackingPage() {
   const { user } = useAuth();
+  const { tr } = useLanguage();
   const { showToast, showConfirmToast } = useToast();
 
   const [records, setRecords] = useState<TrackingRecord[]>([]);
@@ -394,9 +396,9 @@ export default function TrackingPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">File Tracking</h1>
+          <h1 className="text-2xl font-bold text-white">{tr("tracking.title", "File Tracking")}</h1>
           <p className="text-gray-400 text-sm mt-1">
-            Real-time file movements and access history from database
+            {tr("tracking.description", "Real-time file movements and access history from database")}
           </p>
         </div>
         <button
@@ -404,20 +406,20 @@ export default function TrackingPage() {
           className="inline-flex items-center gap-2 bg-white/10 border border-white/15 text-gray-300 px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-white/15 transition w-fit"
         >
           <Download className="w-4 h-4" />
-          Export CSV
+          {tr("tracking.exportCsv", "Export CSV")}
         </button>
       </div>
 
       <div className="glass-card p-5 space-y-4">
         <h2 className="text-white font-semibold flex items-center gap-2">
           <Plus className="w-4 h-4 text-sky-400" />
-          Record New Tracking Action
+          {tr("tracking.recordNew", "Record New Tracking Action")}
         </h2>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1.5">
-              File
+              {tr("tracking.file", "File")}
             </label>
             <select
               value={selectedFileId}
@@ -452,7 +454,7 @@ export default function TrackingPage() {
 
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1.5">
-              To Location
+              {tr("tracking.toLocation", "To Location")}
             </label>
             <input
               value={toLocation}
@@ -468,7 +470,7 @@ export default function TrackingPage() {
 
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-1.5">
-              Note
+              {tr("tracking.note", "Note")}
             </label>
             <input
               value={note}
@@ -490,7 +492,7 @@ export default function TrackingPage() {
             ) : (
               <ArrowRightLeft className="w-4 h-4" />
             )}
-            Save Action
+            {tr("tracking.saveAction", "Save Action")}
           </button>
         </div>
       </div>
@@ -500,7 +502,7 @@ export default function TrackingPage() {
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
           <input
             type="text"
-            placeholder="Search by filename, user, or location..."
+            placeholder={tr("tracking.searchPlaceholder", "Search by filename, user, or location...")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="w-full pl-12 pr-4 py-3.5 rounded-2xl border border-white/15 bg-white/10 backdrop-blur-sm text-white placeholder-gray-500 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500/50 transition"
@@ -589,7 +591,7 @@ export default function TrackingPage() {
                   User
                 </th>
                 <th className="px-6 py-4 font-medium text-gray-500 text-xs uppercase tracking-wider">
-                  Department
+                  {tr("upload.department", "Department")}
                 </th>
                 <th className="px-6 py-4 font-medium text-gray-500 text-xs uppercase tracking-wider">
                   From → To
@@ -711,7 +713,7 @@ export default function TrackingPage() {
           <div className="p-12 text-center">
             <Activity className="w-12 h-12 text-gray-600 mx-auto mb-4" />
             <p className="text-gray-400 font-medium">
-              No tracking records found
+              {tr("tracking.noRecords", "No tracking records found")}
             </p>
           </div>
         )}

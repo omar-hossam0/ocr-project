@@ -15,6 +15,7 @@ import {
   Building2,
   Loader2,
 } from "lucide-react";
+import { useLanguage } from "@/app/lib/language-context";
 import OcrSearchableText from "@/components/OcrSearchableText";
 import { useToast } from "@/components/ToastProvider";
 
@@ -51,6 +52,7 @@ function formatDate(value: FileRecord["uploadedAt"]): string {
 export default function FileDetailsPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
+  const { tr } = useLanguage();
   const { showToast } = useToast();
   const [file, setFile] = useState<FileRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -417,7 +419,7 @@ export default function FileDetailsPage() {
   };
 
   if (loading) {
-    return <div className="text-gray-300">Loading file details...</div>;
+    return <div className="text-gray-300">{tr("common.loading", "Loading file details...")}</div>;
   }
 
   if (error || !file) {
@@ -427,10 +429,10 @@ export default function FileDetailsPage() {
           href="/search"
           className="text-sky-400 hover:text-sky-300 text-sm"
         >
-          Back to search
+          {tr("header.back", "Back to search")}
         </Link>
         <div className="bg-red-500/10 border border-red-500/30 text-red-300 rounded-xl p-4 text-sm">
-          {error || "File not found"}
+          {error || tr("common.notFound", "File not found")}
         </div>
       </div>
     );
@@ -459,7 +461,7 @@ export default function FileDetailsPage() {
             </h1>
           )}
           <p className="text-gray-400 text-sm mt-0.5">
-            File Details & OCR Text
+            {tr("fileDetails.description", "File Details & OCR Text")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -469,27 +471,24 @@ export default function FileDetailsPage() {
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/15 bg-white/10 text-sm font-medium text-gray-300 hover:bg-white/15 transition"
             >
               <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">Download</span>
+              <span className="hidden sm:inline">{tr("fileDetails.download", "Download")}</span>
             </button>
             {downloadMenuOpen && (
               <div className="absolute right-0 top-12 z-20 min-w-40 rounded-xl border border-white/15 bg-[#0d1426] p-1.5 shadow-xl">
                 <button
                   onClick={downloadAsPdf}
                   className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/10"
-                >
-                  Download PDF
+                >                    {tr("fileDetails.downloadPdf", "Download PDF")}
                 </button>
                 <button
                   onClick={downloadAsTxt}
                   className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/10"
-                >
-                  Download TXT
+                >                    {tr("fileDetails.downloadTxt", "Download TXT")}
                 </button>
                 <button
                   onClick={downloadAsPng}
                   className="w-full rounded-lg px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/10"
-                >
-                  Download PNG
+                >                    {tr("fileDetails.downloadPng", "Download PNG")}
                 </button>
               </div>
             )}
@@ -505,7 +504,7 @@ export default function FileDetailsPage() {
               <Edit3 className="w-4 h-4" />
             )}
             <span className="hidden sm:inline">
-              {isEditing ? "Save" : "Edit"}
+              {isEditing ? tr("fileDetails.save", "Save") : tr("fileDetails.edit", "Edit")}
             </span>
           </button>
           {isEditing && (
@@ -520,7 +519,7 @@ export default function FileDetailsPage() {
               }}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-white/15 bg-white/10 text-sm font-medium text-gray-300 hover:bg-white/15 transition"
             >
-              Cancel
+              {tr("fileDetails.cancel", "Cancel")}
             </button>
           )}
         </div>
@@ -530,7 +529,7 @@ export default function FileDetailsPage() {
         <div className="grid gap-4 rounded-2xl border border-white/10 bg-white/5 p-4 lg:grid-cols-2">
           <div>
             <label className="mb-1.5 block text-xs text-gray-400">
-              Tags (comma separated)
+              {tr("fileDetails.tags", "Tags (comma separated)")}
             </label>
             <input
               value={draftTags}
@@ -539,7 +538,7 @@ export default function FileDetailsPage() {
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs text-gray-400">Notes</label>
+            <label className="mb-1.5 block text-xs text-gray-400">{tr("fileDetails.notes", "Notes")}</label>
             <input
               value={draftNotes}
               onChange={(event) => setDraftNotes(event.target.value)}
@@ -553,13 +552,13 @@ export default function FileDetailsPage() {
         {/* File Info */}
         <div className="space-y-6">
           <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6 space-y-5">
-            <h2 className="font-semibold text-white">File Information</h2>
+            <h2 className="font-semibold text-white">{tr("fileDetails.fileInfo", "File Information")}</h2>
 
             <div className="space-y-4">
               <div className="flex items-start gap-3">
                 <MapPin className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-xs text-gray-500">Physical Location</p>
+                  <p className="text-xs text-gray-500">{tr("fileDetails.physicalLocation", "Physical Location")}</p>
                   <p className="text-sm font-medium text-white">
                     {file.physicalLocation || file.location || "Unknown"}
                   </p>
@@ -568,7 +567,7 @@ export default function FileDetailsPage() {
               <div className="flex items-start gap-3">
                 <Building2 className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-xs text-gray-500">Department</p>
+                  <p className="text-xs text-gray-500">{tr("fileDetails.department", "Department")}</p>
                   <p className="text-sm font-medium text-white">
                     {file.department || "General"}
                   </p>
@@ -577,7 +576,7 @@ export default function FileDetailsPage() {
               <div className="flex items-start gap-3">
                 <Calendar className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-xs text-gray-500">Date Added</p>
+                  <p className="text-xs text-gray-500">{tr("fileDetails.dateAdded", "Date Added")}</p>
                   <p className="text-sm font-medium text-white">
                     {formatDate(file.uploadedAt)}
                   </p>
@@ -586,7 +585,7 @@ export default function FileDetailsPage() {
               <div className="flex items-start gap-3">
                 <Clock className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-xs text-gray-500">Last Modified</p>
+                  <p className="text-xs text-gray-500">{tr("fileDetails.lastModified", "Last Modified")}</p>
                   <p className="text-sm font-medium text-white">
                     {formatDate(file.modifiedAt)}
                   </p>
@@ -595,7 +594,7 @@ export default function FileDetailsPage() {
               <div className="flex items-start gap-3">
                 <User className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-xs text-gray-500">Added By</p>
+                  <p className="text-xs text-gray-500">{tr("fileDetails.addedBy", "Added By")}</p>
                   <p className="text-sm font-medium text-white">
                     {file.uploadedBy || "system"}
                   </p>
@@ -604,7 +603,7 @@ export default function FileDetailsPage() {
               <div className="flex items-start gap-3">
                 <User className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-xs text-gray-500">Modified By</p>
+                  <p className="text-xs text-gray-500">{tr("fileDetails.modifiedBy", "Modified By")}</p>
                   <p className="text-sm font-medium text-white">
                     {file.modifiedBy || file.uploadedBy || "system"}
                   </p>
@@ -613,7 +612,7 @@ export default function FileDetailsPage() {
               <div className="flex items-start gap-3">
                 <FileText className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-xs text-gray-500">File Type</p>
+                  <p className="text-xs text-gray-500">{tr("fileDetails.fileType", "File Type")}</p>
                   <span className="text-xs bg-white/10 text-gray-400 px-2 py-0.5 rounded-full">
                     {file.documentType || file.fileType || "Document"}
                   </span>
@@ -626,7 +625,7 @@ export default function FileDetailsPage() {
           <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
             <h2 className="font-semibold text-white mb-3 flex items-center gap-2">
               <Tag className="w-4 h-4 text-gray-500" />
-              Tags
+              {tr("fileDetails.tags", "Tags")}
             </h2>
             <div className="flex flex-wrap gap-2">
               {tags.map((tag) => (
@@ -642,7 +641,7 @@ export default function FileDetailsPage() {
 
           {/* Notes */}
           <div className="bg-amber-500/10 rounded-2xl border border-amber-500/20 p-6">
-            <h2 className="font-semibold text-amber-300 text-sm mb-2">Notes</h2>
+            <h2 className="font-semibold text-amber-300 text-sm mb-2">{tr("fileDetails.notes", "Notes")}</h2>
             <p className="text-sm text-amber-200/80">
               {isEditing ? draftNotes || "-" : file.notes || "-"}
             </p>
@@ -653,12 +652,12 @@ export default function FileDetailsPage() {
         <div className="lg:col-span-2">
           <div className="bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-white">OCR Extracted Text</h2>
+              <h2 className="font-semibold text-white">{tr("fileDetails.ocrText", "OCR Extracted Text")}</h2>
               <button
                 onClick={handleCopyText}
                 className="text-xs text-sky-400 hover:text-sky-300 font-medium"
               >
-                Copy Text
+                {tr("fileDetails.copyText", "Copy Text")}
               </button>
             </div>
             <OcrSearchableText

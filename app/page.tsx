@@ -17,9 +17,11 @@ import {
   ArrowRight,
 } from "lucide-react";
 import ScrollReveal from "@/components/ScrollReveal";
+import { useLanguage } from "@/app/lib/language-context";
 
 export default function LandingPage() {
   const router = useRouter();
+  const { tr } = useLanguage();
 
   return (
     <div className="min-h-screen" suppressHydrationWarning>
@@ -31,17 +33,17 @@ export default function LandingPage() {
           <ScrollReveal>
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
               <span className="animated-gradient-text">
-                Upload documents get
+                {tr("home.heroTitle1", "Upload documents get")}
               </span>
               <br />
-              <span className="animated-gradient-text">instant insights</span>
+              <span className="animated-gradient-text">
+                {tr("home.heroTitle2", "instant insights")}
+              </span>
             </h1>
           </ScrollReveal>
           <ScrollReveal delay={0.1}>
             <p className="mt-6 text-lg text-gray-400 max-w-2xl mx-auto leading-relaxed">
-              Find key clauses, extract data, and collaborate effortlessly.
-              workflow with enterprise-grade AI that understands context and
-              delivers
+              {tr("home.heroDescription", "Find key clauses, extract data, and collaborate effortlessly. workflow with enterprise-grade AI that understands context and delivers")}
             </p>
           </ScrollReveal>
           <ScrollReveal delay={0.2}>
@@ -50,13 +52,13 @@ export default function LandingPage() {
                 href="/login"
                 className="inline-flex items-center gap-2 bg-sky-500 text-white px-7 py-3.5 rounded-full text-sm font-medium hover:bg-sky-400 transition"
               >
-                Start Free Trial <ArrowRight className="w-4 h-4" />
+                {tr("home.startFreeTrial", "Start Free Trial")} <ArrowRight className="w-4 h-4" />
               </Link>
               <Link
                 href="#features"
                 className="inline-flex items-center gap-2 border border-white/20 text-gray-300 px-7 py-3.5 rounded-full text-sm font-medium hover:bg-white/10 transition"
               >
-                Book A Demo <ArrowRight className="w-4 h-4" />
+                {tr("home.bookDemo", "Book A Demo")} <ArrowRight className="w-4 h-4" />
               </Link>
             </div>
           </ScrollReveal>
@@ -68,7 +70,7 @@ export default function LandingPage() {
             <div className="bg-gradient-to-b from-sky-500/80 to-sky-600/60 backdrop-blur-sm rounded-t-3xl rounded-b-[40px] pt-8 pb-16 px-6 sm:px-12 relative overflow-hidden border border-sky-400/30">
               <div className="text-center mb-6">
                 <span className="text-white/90 text-sm font-medium tracking-widest uppercase">
-                  Upload & Organize Document
+                  {tr("home.uploadBoxTitle", "Upload & Organize Document")}
                 </span>
               </div>
               <div
@@ -79,10 +81,10 @@ export default function LandingPage() {
                   <Upload className="w-10 h-10 text-white/60" />
                 </div>
                 <p className="text-white font-medium text-lg">
-                  Drop your documents here
+                  {tr("home.uploadBoxDrop", "Drop your documents here")}
                 </p>
                 <p className="text-white/60 text-sm mt-1">
-                  PDF, DOCX, TXT up to 50MB
+                  {tr("home.uploadBoxLimit", "PDF, DOCX, TXT up to 50MB")}
                 </p>
                 <button
                   className="mt-6 bg-sky-400 hover:bg-sky-300 text-white px-6 py-2.5 rounded-full text-sm font-medium transition"
@@ -91,7 +93,7 @@ export default function LandingPage() {
                     router.push("/upload");
                   }}
                 >
-                  Browse Files
+                  {tr("home.uploadBoxBrowse", "Browse Files")}
                 </button>
               </div>
             </div>
@@ -104,11 +106,10 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto">
           <ScrollReveal className="text-center mb-16">
             <h2 className="text-3xl sm:text-4xl font-bold text-white">
-              Powerful AI features for every team
+              {tr("home.featuresTitle", "Powerful AI features for every team")}
             </h2>
             <p className="mt-4 text-gray-400 max-w-xl mx-auto">
-              From OCR to advanced clause detection, our platform handles the
-              complexity so you can focus on what matters.
+              {tr("home.featuresDescription", "From OCR to advanced clause detection, our platform handles the complexity so you can focus on what matters.")}
             </p>
           </ScrollReveal>
 
@@ -118,16 +119,16 @@ export default function LandingPage() {
               <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-8 border border-white/10 h-full">
                 <div className="flex items-center justify-between text-sm text-gray-400 mb-8">
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-white">99.8%</p>
-                    <p>Success Rate</p>
+                    <p className="text-2xl font-bold text-white">{tr("home.successRate", "99.8%")}</p>
+                    <p>{tr("home.successRateLabel", "Success Rate")}</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-white">180+</p>
-                    <p>Documents processed</p>
+                    <p className="text-2xl font-bold text-white">{tr("home.docsProcessed", "180+")}</p>
+                    <p>{tr("home.docsProcessedLabel", "Documents processed")}</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-white">&lt;2s</p>
-                    <p>Average Time</p>
+                    <p className="text-2xl font-bold text-white">{tr("home.avgTime", "<2s")}</p>
+                    <p>{tr("home.avgTimeLabel", "Average Time")}</p>
                   </div>
                 </div>
                 <div className="space-y-3 mb-8">
@@ -143,10 +144,9 @@ export default function LandingPage() {
                     <span>Lightning-fast processing</span>
                   </div>
                 </div>
-                <h3 className="text-xl font-bold text-white">OCR+Parsing</h3>
+                <h3 className="text-xl font-bold text-white">{tr("home.ocrParsingTitle", "OCR+Parsing")}</h3>
                 <p className="text-sm text-gray-400 mt-1">
-                  Extract text and structure from any document format with 99.9%
-                  accuracy
+                  {tr("home.ocrParsingDesc", "Extract text and structure from any document format with 99.9% accuracy")}
                 </p>
               </div>
             </ScrollReveal>
@@ -159,10 +159,10 @@ export default function LandingPage() {
                     <Zap className="w-4 h-4 text-sky-400 mt-0.5 shrink-0" />
                     <div>
                       <p className="font-semibold text-white text-sm">
-                        Smart analysis
+                        {tr("home.smartAnalysis", "Smart analysis")}
                       </p>
                       <p className="text-xs text-gray-400">
-                        Intelligent parsing of complex legal documents
+                        {tr("home.smartAnalysisDesc", "Intelligent parsing of complex legal documents")}
                       </p>
                     </div>
                   </div>
@@ -170,10 +170,10 @@ export default function LandingPage() {
                     <Clock className="w-4 h-4 text-sky-400 mt-0.5 shrink-0" />
                     <div>
                       <p className="font-semibold text-white text-sm">
-                        Instant results
+                        {tr("home.instantResults", "Instant results")}
                       </p>
                       <p className="text-xs text-gray-400">
-                        Get clause identification in seconds
+                        {tr("home.instantResultsDesc", "Get clause identification in seconds")}
                       </p>
                     </div>
                   </div>
@@ -181,24 +181,23 @@ export default function LandingPage() {
                     <Shield className="w-4 h-4 text-sky-400 mt-0.5 shrink-0" />
                     <div>
                       <p className="font-semibold text-white text-sm">
-                        Legal precision
+                        {tr("home.legalPrecision", "Legal precision")}
                       </p>
                       <p className="text-xs text-gray-400">
-                        Trained on extensive legal databases
+                        {tr("home.legalPrecisionDesc", "Trained on extensive legal databases")}
                       </p>
                     </div>
                   </div>
                 </div>
                 <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-4 py-2 text-sm mb-6 text-gray-300">
                   <Zap className="w-4 h-4 text-sky-400" />
-                  AI-Powered
+                  {tr("home.aiPowered", "AI-Powered")}
                 </div>
                 <h3 className="text-xl font-bold text-white">
-                  Clause Detection
+                  {tr("home.clauseDetectionTitle", "Clause Detection")}
                 </h3>
                 <p className="text-sm text-gray-400 mt-1">
-                  AI-powered identification of key contract clauses and legal
-                  terms
+                  {tr("home.clauseDetectionDesc", "AI-powered identification of key contract clauses and legal terms")}
                 </p>
               </div>
             </ScrollReveal>
@@ -229,9 +228,11 @@ export default function LandingPage() {
                     <span className="text-gray-300">Visual Annotations</span>
                   </div>
                 </div>
-                <h3 className="text-xl font-bold text-white">Collaboration</h3>
+                <h3 className="text-xl font-bold text-white">
+                  {tr("home.collaborationTitle", "Collaboration")}
+                </h3>
                 <p className="text-sm text-gray-400 mt-1">
-                  Real-time team collaboration with comments and annotations
+                  {tr("home.collaborationDesc", "Real-time team collaboration with comments and annotations")}
                 </p>
               </div>
             </ScrollReveal>
@@ -262,10 +263,10 @@ export default function LandingPage() {
                   </div>
                 </div>
                 <h3 className="text-xl font-bold text-white">
-                  Summary & Risk Score
+                  {tr("home.summaryRiskTitle", "Summary & Risk Score")}
                 </h3>
                 <p className="text-sm text-gray-400 mt-1">
-                  Intelligent document summaries with automated risk assessment
+                  {tr("home.summaryRiskDesc", "Intelligent document summaries with automated risk assessment")}
                 </p>
               </div>
             </ScrollReveal>
@@ -278,11 +279,10 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto">
           <ScrollReveal className="text-center mb-16">
             <h2 className="text-3xl sm:text-4xl font-bold text-white">
-              Tailored for your industry
+              {tr("home.industriesTitle", "Tailored for your industry")}
             </h2>
             <p className="mt-4 text-gray-400 max-w-xl mx-auto">
-              From OCR to advanced clause detection, our platform handles the
-              complexity so you can focus on what matters.
+              {tr("home.industriesDesc", "From OCR to advanced clause detection, our platform handles the complexity so you can focus on what matters.")}
             </p>
           </ScrollReveal>
 
@@ -309,9 +309,11 @@ export default function LandingPage() {
                     </div>
                   </div>
                 </div>
-                <h3 className="text-lg font-bold text-white">Legal Teams</h3>
+                <h3 className="text-lg font-bold text-white">
+                  {tr("home.legalTeamsTitle", "Legal Teams")}
+                </h3>
                 <p className="text-sm text-gray-400 mt-1">
-                  Contract review, diligence, and compliance checking
+                  {tr("home.legalTeamsDesc", "Contract review, diligence, and compliance checking")}
                 </p>
               </div>
             </ScrollReveal>
@@ -350,10 +352,10 @@ export default function LandingPage() {
                   </div>
                 </div>
                 <h3 className="text-lg font-bold text-white">
-                  Compliance Teams
+                  {tr("home.complianceTeamsTitle", "Compliance Teams")}
                 </h3>
                 <p className="text-sm text-gray-400 mt-1">
-                  Contract review, diligence, and compliance checking
+                  {tr("home.complianceTeamsDesc", "Contract review, diligence, and compliance checking")}
                 </p>
               </div>
             </ScrollReveal>
@@ -382,9 +384,11 @@ export default function LandingPage() {
                     Auto-Verified
                   </div>
                 </div>
-                <h3 className="text-lg font-bold text-white">HR Departments</h3>
+                <h3 className="text-lg font-bold text-white">
+                  {tr("home.hrDepartmentsTitle", "HR Departments")}
+                </h3>
                 <p className="text-sm text-gray-400 mt-1">
-                  Employee document processing compliance verification
+                  {tr("home.hrDepartmentsDesc", "Employee document processing compliance verification")}
                 </p>
               </div>
             </ScrollReveal>
@@ -397,7 +401,7 @@ export default function LandingPage() {
         <div className="max-w-4xl mx-auto text-center">
           <ScrollReveal>
             <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">
-              How it works
+              {tr("home.howItWorksTitle", "How it works")}
             </h2>
             <p className="text-gray-400 mb-16 max-w-xl mx-auto">
               Get started in three simple steps

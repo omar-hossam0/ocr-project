@@ -12,6 +12,7 @@ import {
   ChevronsUpDown,
 } from "lucide-react";
 import { useAuth } from "@/app/lib/auth-context";
+import { useLanguage } from "@/app/lib/language-context";
 import BrandLogo from "@/components/BrandLogo";
 import {
   Sidebar,
@@ -38,17 +39,18 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/upload", label: "Upload", icon: Upload },
-  { href: "/search", label: "Search", icon: Search },
-  { href: "/tracking", label: "Tracking", icon: Activity },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/dashboard", label: "Dashboard", key: "nav.dashboard" as const, icon: LayoutDashboard },
+  { href: "/upload", label: "Upload", key: "nav.upload" as const, icon: Upload },
+  { href: "/search", label: "Search", key: "nav.search" as const, icon: Search },
+  { href: "/tracking", label: "Tracking", key: "nav.tracking" as const, icon: Activity },
+  { href: "/settings", label: "Settings", key: "nav.settings" as const, icon: Settings },
 ];
 
 const AppSidebar = React.memo(function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { tr, locale } = useLanguage();
 
   const initials = user?.name
     ? user.name.slice(0, 2).toUpperCase()
@@ -74,7 +76,7 @@ const AppSidebar = React.memo(function AppSidebar() {
       {/* Nav items */}
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <SidebarGroupLabel>{tr("nav.navigation", "Navigation")}</SidebarGroupLabel>
           <SidebarMenu>
             {navItems.map((item) => {
               const isActive =
@@ -83,13 +85,13 @@ const AppSidebar = React.memo(function AppSidebar() {
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
                     asChild
-                    tooltip={item.label}
+                    tooltip={tr(item.key, item.label)}
                     isActive={isActive}
                     className="ui-hover-lift"
                   >
                     <Link href={item.href} prefetch>
                       <item.icon />
-                      <span>{item.label}</span>
+                      <span>{tr(item.key, item.label)}</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -126,12 +128,12 @@ const AppSidebar = React.memo(function AppSidebar() {
                       {user?.email || ""}
                     </span>
                   </div>
-                  <ChevronsUpDown className="ml-auto size-4" />
+                  <ChevronsUpDown className={`${locale === "ar" ? "mr-auto" : "ml-auto"} size-4`} />
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 className="ui-fade-in w-64 rounded-2xl border border-white/15 bg-[#0b1228] p-1.5 text-white shadow-2xl backdrop-blur-xl"
-                side="right"
+                side={locale === "ar" ? "left" : "right"}
                 align="end"
                 sideOffset={4}
               >
@@ -139,8 +141,8 @@ const AppSidebar = React.memo(function AppSidebar() {
                   onClick={() => router.push("/profile")}
                   className="min-h-11 rounded-xl px-3 py-2 text-[15px] font-medium text-gray-100 focus:bg-white/10 focus:text-white whitespace-nowrap"
                 >
-                  <Settings className="mr-2 size-4 text-gray-300" />
-                  Profile & Settings
+                  <Settings className={`${locale === "ar" ? "ml-2" : "mr-2"} size-4 text-gray-300`} />
+                  {tr("nav.profileSettings", "Profile & Settings")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -150,8 +152,8 @@ const AppSidebar = React.memo(function AppSidebar() {
                   }}
                   className="min-h-11 rounded-xl px-3 py-2 text-[15px] font-medium text-red-400 focus:bg-red-500/15 focus:text-red-300 whitespace-nowrap"
                 >
-                  <LogOut className="mr-2 size-4 text-red-400" />
-                  Log out
+                  <LogOut className={`${locale === "ar" ? "ml-2" : "mr-2"} size-4 text-red-400`} />
+                  {tr("nav.logOut", "Log out")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

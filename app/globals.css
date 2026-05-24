@@ -166,6 +166,91 @@ html {
   }
 }
 
+/* ── RTL Support ── */
+
+/* Flip icons and elements that use margin-left: auto for RTL */
+[dir="rtl"] .ml-auto {
+  margin-left: unset;
+  margin-right: auto;
+}
+
+[dir="rtl"] .mr-auto {
+  margin-right: unset;
+  margin-left: auto;
+}
+
+/* Fix text alignment for RTL */
+[dir="rtl"] .text-left {
+  text-align: right;
+}
+
+[dir="rtl"] .text-right {
+  text-align: left;
+}
+
+/* Flip left/right positioned elements */
+[dir="rtl"] .left-0 {
+  left: unset;
+  right: 0;
+}
+
+[dir="rtl"] .right-0 {
+  right: unset;
+  left: 0;
+}
+
+[dir="rtl"] .left-4 {
+  left: unset;
+  right: 1rem;
+}
+
+[dir="rtl"] .right-4 {
+  right: unset;
+  left: 1rem;
+}
+
+/* Fix padding/margin directionals */
+[dir="rtl"] .pl-10 { padding-left: unset; padding-right: 2.5rem; }
+[dir="rtl"] .pl-12 { padding-left: unset; padding-right: 3rem; }
+[dir="rtl"] .pl-4 { padding-left: unset; padding-right: 1rem; }
+[dir="rtl"] .pr-4 { padding-right: unset; padding-left: 1rem; }
+[dir="rtl"] .pl-3 { padding-left: unset; padding-right: 0.75rem; }
+[dir="rtl"] .pr-3 { padding-right: unset; padding-left: 0.75rem; }
+
+/* Ensure search icons stay positioned correctly in RTL */
+[dir="rtl"] .search-icon-left {
+  right: 1rem;
+  left: unset;
+}
+
+/* Fix select arrow positioning in RTL */
+[dir="rtl"] select {
+  background-position: left 0.75rem center !important;
+  padding-right: 0.75rem !important;
+  padding-left: 2.5rem !important;
+}
+
+/* Chevron flip for RTL */
+[dir="rtl"] .chevron-flip {
+  transform: scaleX(-1);
+}
+
+/* Animate direction toggle with a smooth page content transition */
+@keyframes rtlContentIn {
+  0% {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.rtl-content-in {
+  animation: rtlContentIn 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
