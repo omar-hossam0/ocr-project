@@ -1,8 +1,15 @@
-// Adapter: forward Firestore-style calls to the Express backend (MongoDB)
-// This file keeps the same exported function names used across the frontend
-// but implements them by calling same-origin Next.js API routes.
+// Adapter: forward Firestore-style calls to the Express backend (MongoDB).
+// Client calls default to same-origin unless NEXT_PUBLIC_BACKEND_URL is set.
+// Server calls always use an absolute backend URL to avoid recursive /api fetches.
+const SERVER_BACKEND_URL =
+  process.env.BACKEND_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  "http://localhost:4000";
 
-const BACKEND = "";
+const BACKEND =
+  typeof window === "undefined"
+    ? SERVER_BACKEND_URL
+    : process.env.NEXT_PUBLIC_BACKEND_URL || "";
 
 function authHeaders(): Record<string, string> {
   const token =
@@ -406,6 +413,31 @@ export async function runOcr(file: File) {
   }
 }
 
+/**
+ * ✅ Run OCR for camera captures using the dedicated camera OCR model
+ */
+export async function runCameraOcr(file: File) {
+  try {
+    const formData = new FormData();
+    formData.append("image", file);
+
+    const res = await fetch(`${BACKEND}/api/camera-ocr/capture`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+      },
+      body: formData,
+    });
+
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error || "Camera OCR failed");
+    return json;
+  } catch (err) {
+    console.error("Error runCameraOcr -> backend:", err);
+    throw err;
+  }
+}
+
 // Tracking/Logs
 export interface TrackingLog {
   id?: string;
@@ -659,6 +691,25 @@ export async function getUserProfile(
       const errMsg =
         (json && json.error) || res.statusText || "Failed to fetch profile";
       console.warn("Failed to fetch user profile:", res.status, errMsg);
+
+      if (res.status === 404 || res.status === 405) {
+        const fallback = await fetch(`${BACKEND}/api/settings/users/me`, {
+          headers: { ...authHeaders() },
+        });
+        const fallbackText = await fallback.text();
+        let fallbackJson: any = null;
+        if (fallbackText) {
+          try {
+            fallbackJson = JSON.parse(fallbackText);
+          } catch {
+            fallbackJson = null;
+          }
+        }
+        if (fallback.ok) {
+          return (fallbackJson && fallbackJson.data) || null;
+        }
+      }
+
       return null;
     }
 
@@ -687,7 +738,27 @@ export async function saveUserProfile(
       body: JSON.stringify({ ...cleanData, updatedAt: new Date() }),
     });
     const json = await res.json();
-    if (!res.ok) throw new Error(json?.error || "Failed to save profile");
+    if (!res.ok) {
+      if (res.status === 404 || res.status === 405) {
+        const fallbackRes = await fetch(`${BACKEND}/api/settings/users/me`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders(),
+          },
+          body: JSON.stringify({ ...cleanData, updatedAt: new Date() }),
+        });
+        const fallbackJson = await fallbackRes.json();
+        if (!fallbackRes.ok) {
+          throw new Error(
+            fallbackJson?.error || json?.error || "Failed to save profile",
+          );
+        }
+        return;
+      }
+
+      throw new Error(json?.error || "Failed to save profile");
+    }
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : "Failed to save profile";
@@ -703,7 +774,7 @@ export async function uploadProfilePhoto(
   try {
     const formData = new FormData();
     formData.append("file", file);
-    const res = await fetch(`${BACKEND}/api/upload`, {
+    const res = await fetch(`${BACKEND}/api/profile/photo`, {
       method: "POST",
       headers: { ...authHeaders() },
       body: formData,
@@ -736,7 +807,7 @@ export function uploadProfilePhotoResumable(
     const formData = new FormData();
     formData.append("file", file);
 
-    fetch(`${BACKEND}/api/upload`, {
+    fetch(`${BACKEND}/api/profile/photo`, {
       method: "POST",
       headers: { ...authHeaders() },
       body: formData,

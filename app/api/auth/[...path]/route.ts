@@ -3,15 +3,33 @@ import { NextRequest, NextResponse } from "next/server";
 const BACKEND_URL =
   process.env.BACKEND_URL ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "http://localhost:4000";
+  (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000");
+
+function isProductionBackendUrl(url: string) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(url);
+}
 
 async function proxyAuthRequest(request: NextRequest, pathSegments: string[]) {
-  if (!BACKEND_URL || BACKEND_URL.includes("localhost")) {
+  if (!BACKEND_URL) {
     return NextResponse.json(
       {
         success: false,
         error:
-          "Backend URL is not configured for this deployment. Set BACKEND_URL to the deployed backend service.",
+          "Backend URL is not configured. Set BACKEND_URL (or NEXT_PUBLIC_BACKEND_URL) to the backend service URL.",
+      },
+      { status: 503 },
+    );
+  }
+
+  if (
+    process.env.NODE_ENV === "production" &&
+    isProductionBackendUrl(BACKEND_URL)
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          "Backend URL points to localhost in production. Set BACKEND_URL to the deployed backend service.",
       },
       { status: 503 },
     );

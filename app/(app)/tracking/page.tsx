@@ -13,10 +13,17 @@ import {
   Loader2,
   Plus,
   Trash2,
+  Building2,
 } from "lucide-react";
 import { useAuth } from "@/app/lib/auth-context";
 import { useLanguage } from "@/app/lib/language-context";
 import { useToast } from "@/components/ToastProvider";
+import { getSettingsLocations, StorageLocationSetting } from "@/app/lib/firestore";
+import {
+  fetchWithCache,
+  invalidateCache,
+  getCacheSnapshot,
+} from "@/app/lib/client-cache";
 
 type FileRecord = {
   id: string;
@@ -111,42 +118,42 @@ export default function TrackingPage() {
   const [selectedAction, setSelectedAction] = useState<TrackingAction>("taken");
   const [toLocation, setToLocation] = useState("");
   const [note, setNote] = useState("");
+  const [availableLocations, setAvailableLocations] = useState<
+    (StorageLocationSetting & { id: string })[]
+  >([]);
+  const [loadingLocations, setLoadingLocations] = useState(true);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [trackingResponse, filesResponse] = await Promise.all([
-        fetch("/api/tracking?limit=300", { cache: "no-store" }),
-        fetch("/api/files", { cache: "no-store" }),
+      const [trackingData, filesData] = await Promise.all([
+        fetchWithCache<TrackingRecord[]>(
+          "tracking",
+          async () => {
+            const res = await fetch("/api/tracking?limit=300");
+            const json = await res.json();
+            if (!res.ok || !json.success) {
+              throw new Error(json.error || "Failed to load tracking records");
+            }
+            return Array.isArray(json.data) ? json.data : [];
+          },
+          { ttlMs: 15_000 },
+        ),
+        fetchWithCache<(FileRecord & { id: string })[]>(
+          "files",
+          async () => {
+            const res = await fetch("/api/files");
+            const json = await res.json();
+            if (!res.ok || !json.success || !Array.isArray(json.data)) {
+              throw new Error(json.error || "Failed to load files");
+            }
+            return json.data;
+          },
+          { ttlMs: 15_000 },
+        ),
       ]);
 
-      const trackingJson = (await trackingResponse.json()) as {
-        success?: boolean;
-        data?: TrackingRecord[];
-        error?: string;
-      };
-
-      const filesJson = (await filesResponse.json()) as {
-        success?: boolean;
-        data?: FileRecord[];
-        error?: string;
-      };
-
-      if (!trackingResponse.ok || !trackingJson.success) {
-        throw new Error(
-          trackingJson.error || "Failed to load tracking records",
-        );
-      }
-
-      if (
-        !filesResponse.ok ||
-        !filesJson.success ||
-        !Array.isArray(filesJson.data)
-      ) {
-        throw new Error(filesJson.error || "Failed to load files");
-      }
-
-      const nextFilesById = filesJson.data.reduce<Record<string, FileRecord>>(
+      const nextFilesById = filesData.reduce<Record<string, FileRecord>>(
         (acc, file) => {
           acc[file.id] = file;
           return acc;
@@ -155,10 +162,10 @@ export default function TrackingPage() {
       );
 
       setFilesById(nextFilesById);
-      setRecords(Array.isArray(trackingJson.data) ? trackingJson.data : []);
+      setRecords(trackingData);
 
-      if (!selectedFileId && filesJson.data.length > 0) {
-        setSelectedFileId(filesJson.data[0].id);
+      if (!selectedFileId && filesData.length > 0) {
+        setSelectedFileId(filesData[0].id);
       }
     } catch (error) {
       const message =
@@ -172,6 +179,33 @@ export default function TrackingPage() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    const loadLocations = async () => {
+      setLoadingLocations(true);
+      try {
+        const data = await fetchWithCache(
+          "settings/locations",
+          () => getSettingsLocations(),
+          { ttlMs: 60_000 },
+        );
+        setAvailableLocations(data || []);
+      } catch (err) {
+        console.error("Failed to load locations:", err);
+      } finally {
+        setLoadingLocations(false);
+      }
+    };
+
+    // Show cached locations immediately if available
+    const cached = getCacheSnapshot<(StorageLocationSetting & { id: string })[]>("settings/locations");
+    if (cached) {
+      setAvailableLocations(cached);
+      setLoadingLocations(false);
+    }
+
+    void loadLocations();
+  }, []);
 
   const rows = useMemo<TrackingViewRow[]>(() => {
     return records
@@ -342,6 +376,8 @@ export default function TrackingPage() {
         setToLocation("");
       }
 
+      invalidateCache("tracking");
+      invalidateCache("files");
       await loadData();
       showToast("Tracking action recorded successfully", "success");
     } catch (error) {
@@ -381,6 +417,8 @@ export default function TrackingPage() {
         throw new Error(json.error || "Failed to delete tracking record");
       }
 
+      invalidateCache("tracking");
+      invalidateCache("files");
       await loadData();
       showToast("Tracking record deleted successfully", "success");
     } catch (error) {
@@ -456,16 +494,29 @@ export default function TrackingPage() {
             <label className="block text-xs font-medium text-gray-400 mb-1.5">
               {tr("tracking.toLocation", "To Location")}
             </label>
-            <input
-              value={toLocation}
-              onChange={(event) => setToLocation(event.target.value)}
-              placeholder={
-                selectedAction === "taken"
-                  ? "Optional for taken"
-                  : "Required for returned/moved"
-              }
-              className="w-full px-3 py-2 rounded-xl border border-white/15 bg-[#0a0f1e] text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
-            />
+            <div className="relative">
+              <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+              <select
+                value={toLocation}
+                onChange={(event) => setToLocation(event.target.value)}
+                className="w-full pl-10 pr-4 py-2 rounded-xl border border-white/15 bg-[#0a0f1e] text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 appearance-none cursor-pointer"
+                disabled={loadingLocations}
+              >
+                <option value="">
+                  {loadingLocations
+                    ? "Loading locations..."
+                    : selectedAction === "taken"
+                      ? "Optional — Select location"
+                      : "Select destination location"}
+                </option>
+                {availableLocations.map((loc) => (
+                  <option key={loc.id} value={loc.name}>
+                    {loc.name}
+                    {loc.type ? ` (${loc.type})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div>

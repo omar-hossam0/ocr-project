@@ -205,23 +205,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const token = getToken();
       if (!token) throw new Error("No user logged in");
 
+      const payload = { name: displayName, photoURL };
+
       const res = await fetch(`${BACKEND}/api/settings/users/me`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ name: displayName, photoURL }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json();
+
       if (!res.ok || !json.success) {
-        throw new Error(json?.error || "Failed to update profile");
+        const errorMessage = json?.error || "Failed to update profile";
+
+        if (user?.id) {
+          const fallbackRes = await fetch(
+            `${BACKEND}/api/settings/users/${user.id}`,
+            {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify(payload),
+            },
+          );
+          const fallbackJson = await fallbackRes.json();
+          if (!fallbackRes.ok || !fallbackJson.success) {
+            throw new Error(
+              fallbackJson?.error || errorMessage || "Failed to update profile",
+            );
+          }
+        } else {
+          throw new Error(errorMessage);
+        }
       }
+
       setUser((prev) =>
         prev ? { ...prev, name: displayName, photoURL } : null,
       );
     },
-    [],
+    [user],
   );
 
   const updateUserPassword = useCallback(async (newPassword: string) => {

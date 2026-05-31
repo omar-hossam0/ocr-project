@@ -24,6 +24,7 @@ import {
   updateFile,
   getFile,
   runOcr,
+  runCameraOcr,
   uploadFileToStorage,
   FileData,
 } from "@/app/lib/firestore";
@@ -46,6 +47,19 @@ type FileStatus =
 const OCR_JOB_STORAGE_KEY = "ocrBackgroundFileId";
 const OCR_CLIENT_TIMEOUT_MS = 600000; // 10m for large PDFs and first-time lang download
 const STORAGE_UPLOAD_TIMEOUT_MS = 180000;
+
+function getFileKind(file: File) {
+  const type = file.type || "";
+  const name = file.name || "";
+  const isImage =
+    type.startsWith("image/") || /\.(png|jpe?g|bmp|tiff?|webp)$/i.test(name);
+  const isPdf = type === "application/pdf" || /\.pdf$/i.test(name);
+  return {
+    isImage,
+    isPdf,
+    supported: isImage || isPdf,
+  };
+}
 
 async function safeReadJson<T>(response: Response): Promise<{
   ok: boolean;
@@ -119,12 +133,23 @@ export default function UploadPage() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraLoading, setCameraLoading] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
+  const [cameraDiagnostics, setCameraDiagnostics] = useState<{
+    secureContext: boolean;
+    permission: string;
+    deviceCount: number;
+    deviceError?: string;
+  } | null>(null);
   const [ocrEngineInfo, setOcrEngineInfo] = useState("");
   const [ocrProgress, setOcrProgress] = useState(0);
   const [backgroundFileId, setBackgroundFileId] = useState<string | null>(null);
   const [backgroundStatus, setBackgroundStatus] = useState<FileStatus | "idle">(
     "idle",
   );
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewKind, setPreviewKind] = useState<
+    "image" | "pdf" | "unknown" | null
+  >(null);
+  const [pdfPreviewError, setPdfPreviewError] = useState<string | null>(null);
 
   const [availableLocations, setAvailableLocations] = useState<any[]>([]);
   const [availableDepartments, setAvailableDepartments] = useState<any[]>([]);
@@ -133,6 +158,8 @@ export default function UploadPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
+  const pdfWrapperRef = useRef<HTMLDivElement>(null);
 
   const getSafeExportBaseName = useCallback(() => {
     const rawBase = (fileName || file?.name || "ocr_result")
@@ -486,6 +513,8 @@ export default function UploadPage() {
       setProcessing(true);
       setError("");
 
+      const fileKind = getFileKind(targetFile);
+
       try {
         // ── Step 1: Run OCR FIRST (fast with cached tesseract.js) ──
         setOcrEngineInfo("running OCR model...");
@@ -495,31 +524,36 @@ export default function UploadPage() {
         let ocrDevice = "cpu";
         let ocrSource = "";
 
-        try {
-          setOcrProgress(20);
-          const ocrJson = await runOcr(targetFile);
+        if (!fileKind.supported) {
+          setOcrEngineInfo("OCR not supported for this file type");
+          setOcrProgress(0);
+        } else {
+          try {
+            setOcrProgress(20);
+            const ocrJson = await runOcr(targetFile);
 
-          setOcrProgress(70);
-          if (ocrJson?.success) {
-            ocrText = (ocrJson?.data?.text || "").trim();
-            ocrEngine = ocrJson?.data?.engine || "tesseract.js";
-            ocrDevice = ocrJson?.data?.device || "cpu";
-            ocrSource = ocrJson?.data?.source || "";
-            setOcrProgress(90);
-          } else {
-            console.warn("OCR returned error:", ocrJson?.error);
+            setOcrProgress(70);
+            if (ocrJson?.success) {
+              ocrText = (ocrJson?.data?.text || "").trim();
+              ocrEngine = ocrJson?.data?.engine || "tesseract.js";
+              ocrDevice = ocrJson?.data?.device || "cpu";
+              ocrSource = ocrJson?.data?.source || "";
+              setOcrProgress(90);
+            } else {
+              console.warn("OCR returned error:", ocrJson?.error);
+              setOcrProgress(0);
+            }
+          } catch (ocrErr) {
+            const ocrErrMsg =
+              ocrErr instanceof Error ? ocrErr.message : "OCR failed";
+            console.warn("OCR failed:", ocrErrMsg);
+            setOcrEngineInfo("OCR unavailable");
             setOcrProgress(0);
           }
-        } catch (ocrErr) {
-          const ocrErrMsg =
-            ocrErr instanceof Error ? ocrErr.message : "OCR failed";
-          console.warn("OCR failed:", ocrErrMsg);
-          setOcrEngineInfo("OCR unavailable");
-          setOcrProgress(0);
         }
 
         // If server OCR didn't return text (common on Vercel), try client-side OCR for images.
-        if (!ocrText && /^image\//i.test(targetFile.type || "")) {
+        if (!ocrText && fileKind.isImage) {
           try {
             setOcrEngineInfo("running browser OCR...");
             const clientText = await runClientOcrFallback(targetFile);
@@ -559,11 +593,17 @@ export default function UploadPage() {
                 ? "PDF OCR"
                 : ocrEngine;
           setOcrEngineInfo(
-            engineLabel ? `${engineLabel} • no text found` : "OCR unavailable",
+            engineLabel
+              ? `${engineLabel} • no text found`
+              : fileKind.supported
+                ? "OCR unavailable"
+                : "OCR not supported for this file type",
           );
           setOcrProgress(0);
           setProcessing(false);
-          showToast("OCR failed on server; no text detected", "error");
+          if (fileKind.supported) {
+            showToast("OCR failed on server; no text detected", "error");
+          }
         }
 
         // ── Step 2: Upload to storage + save metadata (background) ──
@@ -596,7 +636,9 @@ export default function UploadPage() {
           storageUrl,
           notesOverride: ocrText
             ? `OCR complete (${ocrEngine} • ${ocrDevice})`
-            : "No OCR text extracted",
+            : fileKind.supported
+              ? "No OCR text extracted"
+              : "OCR not supported for this file type",
         });
 
         if (savedFileId) {
@@ -627,6 +669,127 @@ export default function UploadPage() {
     setError("");
   }, []);
 
+  const refreshCameraDiagnostics = useCallback(async () => {
+    if (typeof window === "undefined") return;
+
+    const secureContext = Boolean(window.isSecureContext);
+    let permission = "unknown";
+    let deviceCount = 0;
+    let deviceError: string | undefined;
+
+    try {
+      if (navigator.permissions?.query) {
+        const result = await navigator.permissions.query({
+          name: "camera" as PermissionName,
+        });
+        permission = result.state || "unknown";
+      }
+    } catch {
+      permission = "unknown";
+    }
+
+    try {
+      if (navigator.mediaDevices?.enumerateDevices) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        deviceCount = devices.filter((d) => d.kind === "videoinput").length;
+      }
+    } catch (err) {
+      deviceError = err instanceof Error ? err.message : "Device check failed";
+    }
+
+    setCameraDiagnostics({
+      secureContext,
+      permission,
+      deviceCount,
+      deviceError,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      setPreviewKind(null);
+      setPdfPreviewError(null);
+      return;
+    }
+
+    const url = URL.createObjectURL(file);
+    const type = file.type || "";
+    const isImage =
+      type.startsWith("image/") ||
+      /\.(png|jpe?g|bmp|tiff?|webp)$/i.test(file.name);
+    const isPdf = type === "application/pdf" || /\.pdf$/i.test(file.name);
+
+    setPreviewUrl(url);
+    setPreviewKind(isImage ? "image" : isPdf ? "pdf" : "unknown");
+    setPdfPreviewError(null);
+
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [file]);
+
+  useEffect(() => {
+    if (!file || previewKind !== "pdf") {
+      return;
+    }
+
+    let canceled = false;
+
+    const renderPdf = async () => {
+      try {
+        const pdfjs = await import("pdfjs-dist/legacy/build/pdf");
+        pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+          "pdfjs-dist/legacy/build/pdf.worker.min.mjs",
+          import.meta.url,
+        ).toString();
+
+        const buffer = await file.arrayBuffer();
+        const loadingTask = pdfjs.getDocument({ data: buffer });
+        const pdf = await loadingTask.promise;
+        const page = await pdf.getPage(1);
+
+        if (canceled) {
+          return;
+        }
+
+        const canvas = pdfCanvasRef.current;
+        const wrapper = pdfWrapperRef.current;
+        if (!canvas || !wrapper) {
+          return;
+        }
+
+        const viewport = page.getViewport({ scale: 1 });
+        const maxWidth = Math.max(320, wrapper.clientWidth || 720);
+        const scale = Math.min(2.5, maxWidth / viewport.width);
+        const scaledViewport = page.getViewport({ scale });
+
+        canvas.width = Math.floor(scaledViewport.width);
+        canvas.height = Math.floor(scaledViewport.height);
+
+        const context = canvas.getContext("2d");
+        if (!context) {
+          return;
+        }
+
+        await page.render({ canvasContext: context, viewport: scaledViewport })
+          .promise;
+      } catch (err) {
+        if (!canceled) {
+          const message =
+            err instanceof Error ? err.message : "Failed to render PDF preview";
+          setPdfPreviewError(message);
+        }
+      }
+    };
+
+    void renderPdf();
+
+    return () => {
+      canceled = true;
+    };
+  }, [file, previewKind]);
+
   const stopCamera = useCallback(() => {
     const tracks = streamRef.current?.getTracks() || [];
     tracks.forEach((track) => track.stop());
@@ -642,31 +805,189 @@ export default function UploadPage() {
     setCameraReady(false);
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-        },
+      if (typeof window === "undefined") {
+        return;
+      }
+
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        const msg = "Camera is not supported in this browser.";
+        setError(msg);
+        showToast(msg, "error");
+        await refreshCameraDiagnostics();
+        return;
+      }
+
+      if (!window.isSecureContext) {
+        const msg = "Camera requires HTTPS (or localhost).";
+        setError(msg);
+        showToast(msg, "error");
+        await refreshCameraDiagnostics();
+        return;
+      }
+
+      stopCamera();
+
+      const primaryConstraints: MediaStreamConstraints = {
+        video: { facingMode: { ideal: "environment" } },
         audio: false,
-      });
+      };
+      const fallbackConstraints: MediaStreamConstraints = {
+        video: true,
+        audio: false,
+      };
+
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(primaryConstraints);
+      } catch (err) {
+        const name = err instanceof DOMException ? err.name : "";
+        if (name === "OverconstrainedError" || name === "NotFoundError") {
+          stream =
+            await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+        } else {
+          throw err;
+        }
+      }
+
+      if (!stream) {
+        throw new Error("Failed to start camera.");
+      }
 
       streamRef.current = stream;
       setCameraOpen(true);
+      await refreshCameraDiagnostics();
     } catch (err) {
-      const message =
+      const errorName = err instanceof DOMException ? err.name : "";
+      let message =
         err instanceof Error
           ? err.message
           : "Cannot access camera. Please allow permission.";
+
+      if (
+        errorName === "NotAllowedError" ||
+        errorName === "PermissionDeniedError"
+      ) {
+        message =
+          "Camera permission denied. Please allow camera access in your browser settings.";
+      } else if (errorName === "NotFoundError") {
+        message = "No camera device found.";
+      } else if (errorName === "NotReadableError") {
+        message = "Camera is already in use by another app.";
+      } else if (errorName === "OverconstrainedError") {
+        message = "Requested camera is not available.";
+      } else if (errorName === "SecurityError") {
+        message = "Camera requires HTTPS (or localhost).";
+      }
+
       setError(message);
       showToast(message, "error");
+      await refreshCameraDiagnostics();
     } finally {
       setCameraLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, stopCamera, refreshCameraDiagnostics]);
 
   const closeCamera = useCallback(() => {
     stopCamera();
     setCameraOpen(false);
   }, [stopCamera]);
+
+  const processCameraCapture = useCallback(
+    async (capturedFile: File) => {
+      if (!user) {
+        const msg = "Missing user";
+        setError(msg);
+        showToast(msg, "error");
+        return;
+      }
+
+      setProcessing(true);
+      setError("");
+      setOcrProgress(10);
+      setOcrEngineInfo("running camera OCR model...");
+
+      let ocrText = "";
+      let ocrEngine = "camera_ocr";
+      let ocrDevice = "cpu";
+
+      try {
+        setOcrProgress(30);
+        const ocrJson = await runCameraOcr(capturedFile);
+        if (!ocrJson?.success) {
+          throw new Error(ocrJson?.error || "Camera OCR failed");
+        }
+
+        ocrText = String(ocrJson?.data?.text || "").trim();
+        ocrEngine = ocrJson?.data?.engine || ocrEngine;
+        ocrDevice = ocrJson?.data?.device || ocrDevice;
+
+        setOcrProgress(80);
+        if (ocrText) {
+          setOcrResult(ocrText);
+          setOcrEngineInfo(`${ocrEngine} • ${ocrDevice}`);
+          setOcrProgress(100);
+          showToast("OCR completed successfully!", "success");
+        } else {
+          setOcrResult("(No text detected by OCR)");
+          setOcrEngineInfo(`${ocrEngine} • no text found`);
+          setOcrProgress(0);
+          showToast("OCR completed but no text detected", "error");
+        }
+
+        let storageUrl: string | undefined;
+        try {
+          const uploadResult = await uploadFileToStorage(
+            capturedFile,
+            user.id || user.email || "anonymous",
+            fileName || capturedFile.name,
+          );
+
+          if (uploadResult && uploadResult.url) {
+            storageUrl = uploadResult.url;
+          }
+        } catch (storageErr) {
+          console.warn(
+            "Storage upload failed (continuing without storage URL):",
+            storageErr,
+          );
+        }
+
+        const savedFileId = await persistFileRecord(capturedFile, ocrText, {
+          status: "available",
+          storageUrl,
+          notesOverride: ocrText
+            ? `OCR complete (${ocrEngine} • ${ocrDevice})`
+            : "No OCR text extracted",
+        });
+
+        if (savedFileId) {
+          setBackgroundFileId(savedFileId);
+          setBackgroundStatus("available");
+          if (typeof window !== "undefined") {
+            localStorage.removeItem(OCR_JOB_STORAGE_KEY);
+          }
+          showToast("File saved successfully!", "success");
+        }
+      } catch (err) {
+        const errorMessage =
+          err instanceof Error ? err.message : "Camera OCR failed";
+        setError(errorMessage);
+        showToast(errorMessage, "error");
+        await queueOcrWithPersistence(capturedFile);
+      } finally {
+        setProcessing(false);
+      }
+    },
+    [
+      user,
+      fileName,
+      runCameraOcr,
+      uploadFileToStorage,
+      persistFileRecord,
+      queueOcrWithPersistence,
+      showToast,
+    ],
+  );
 
   const captureFromCamera = useCallback(async () => {
     const video = videoRef.current;
@@ -713,8 +1034,8 @@ export default function UploadPage() {
     handleFileSelect(capturedFile);
     closeCamera();
     showToast("Camera image captured", "success");
-    await queueOcrWithPersistence(capturedFile);
-  }, [closeCamera, handleFileSelect, queueOcrWithPersistence, showToast]);
+    await processCameraCapture(capturedFile);
+  }, [closeCamera, handleFileSelect, processCameraCapture, showToast]);
 
   useEffect(() => {
     return () => {
@@ -778,6 +1099,10 @@ export default function UploadPage() {
         setBackgroundStatus("failed");
       });
   }, [pollBackgroundResult]);
+
+  useEffect(() => {
+    void refreshCameraDiagnostics();
+  }, [refreshCameraDiagnostics]);
 
   useEffect(() => {
     if (!cameraOpen) {
@@ -940,7 +1265,7 @@ export default function UploadPage() {
                   {tr("upload.dropHere", "Drop your documents here")}
                 </p>
                 <p className="text-gray-400 text-sm mt-1">
-                  PDF, JPG, PNG, BMP, TIFF up to 50MB
+                  All file types up to 50MB
                 </p>
                 <div className="flex items-center justify-center gap-3 mt-6">
                   <button
@@ -952,7 +1277,7 @@ export default function UploadPage() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".pdf,.jpg,.jpeg,.png,.bmp,.tif,.tiff,.webp"
+                    accept="*/*"
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
@@ -973,6 +1298,84 @@ export default function UploadPage() {
               </>
             )}
           </div>
+
+          {cameraDiagnostics &&
+            (error.toLowerCase().includes("camera") ||
+              error.toLowerCase().includes("permission") ||
+              error.toLowerCase().includes("https")) && (
+              <div className="glass-card p-4 text-xs text-gray-300 space-y-2">
+                <div className="text-gray-400">Camera diagnostics</div>
+                <div>
+                  Secure context:{" "}
+                  {cameraDiagnostics.secureContext ? "yes" : "no"}
+                </div>
+                <div>Permission: {cameraDiagnostics.permission}</div>
+                <div>Video devices: {cameraDiagnostics.deviceCount}</div>
+                {cameraDiagnostics.deviceError && (
+                  <div className="text-red-400">
+                    Device error: {cameraDiagnostics.deviceError}
+                  </div>
+                )}
+              </div>
+            )}
+
+          {/* Preview */}
+          {file && previewUrl && (
+            <div className="glass-card p-6 space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-white">
+                  {tr("upload.preview", "Preview")}
+                </h2>
+                <span className="text-xs text-gray-400">
+                  {previewKind === "pdf"
+                    ? tr("upload.previewPdf", "Page 1")
+                    : previewKind === "image"
+                      ? tr("upload.previewImage", "Image")
+                      : tr("upload.previewFile", "File")}
+                </span>
+              </div>
+              <div
+                ref={pdfWrapperRef}
+                className="rounded-2xl border border-white/15 bg-black/40 overflow-hidden min-h-[240px] aspect-[4/3] flex items-center justify-center"
+              >
+                {previewKind === "image" && (
+                  <img
+                    src={previewUrl}
+                    alt={file.name}
+                    className="w-full h-full object-contain"
+                  />
+                )}
+                {previewKind === "pdf" && (
+                  <div className="w-full h-full flex items-center justify-center">
+                    {pdfPreviewError ? (
+                      <div className="text-center text-sm text-gray-400">
+                        {tr(
+                          "upload.previewUnavailable",
+                          "Preview not available for this file type",
+                        )}
+                      </div>
+                    ) : (
+                      <canvas ref={pdfCanvasRef} className="w-full h-full" />
+                    )}
+                  </div>
+                )}
+                {previewKind === "unknown" && (
+                  <div className="text-center text-sm text-gray-400 space-y-2">
+                    <div className="mx-auto w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+                      <FileText className="w-5 h-5 text-gray-400" />
+                    </div>
+                    <div className="text-white/90">{file.name}</div>
+                    <div className="text-gray-500">
+                      {tr(
+                        "upload.previewUnavailable",
+                        "Preview not available for this file type",
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* File details form */}
           <div className="glass-card p-6 space-y-5">

@@ -6,7 +6,9 @@ import { authMiddleware, signToken } from "../middleware/auth.js";
 const router = express.Router();
 
 function normalizeEmail(email) {
-  return String(email || "").trim().toLowerCase();
+  return String(email || "")
+    .trim()
+    .toLowerCase();
 }
 
 function buildUserResponse(userDoc) {
@@ -15,6 +17,8 @@ function buildUserResponse(userDoc) {
     name: userDoc.name || "User",
     email: userDoc.email,
     role: userDoc.role || "Viewer",
+    department: userDoc.department || "",
+    photoURL: userDoc.photoURL || "",
   };
 }
 
@@ -84,7 +88,8 @@ router.get("/me", authMiddleware({ required: true }), async (req, res) => {
 
     return res.json({ success: true, user: buildUserResponse(user) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to load user";
+    const message =
+      error instanceof Error ? error.message : "Failed to load user";
     return res.status(500).json({ success: false, error: message });
   }
 });
@@ -131,7 +136,9 @@ router.post("/register", async (req, res) => {
       updatedAt: new Date(),
     });
 
-    const user = await db.collection("users").findOne({ _id: result.insertedId });
+    const user = await db
+      .collection("users")
+      .findOne({ _id: result.insertedId });
 
     const token = signToken({
       sub: user._id.toString(),
@@ -146,7 +153,8 @@ router.post("/register", async (req, res) => {
       user: buildUserResponse(user),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Registration failed";
+    const message =
+      error instanceof Error ? error.message : "Registration failed";
     return res.status(500).json({ success: false, error: message });
   }
 });

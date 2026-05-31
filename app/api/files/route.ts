@@ -31,7 +31,7 @@ function withTimeout<T>(
  */
 export async function GET() {
   try {
-    const files = await getAllFiles(true);
+    const files = await getAllFiles(false);
 
     return NextResponse.json({
       success: true,

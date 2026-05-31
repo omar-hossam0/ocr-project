@@ -15,15 +15,17 @@ import {
 import { useAuth } from "@/app/lib/auth-context";
 import { useLanguage } from "@/app/lib/language-context";
 import {
+  getSettingsDepartments,
   getUserProfile,
   saveUserProfile,
   uploadProfilePhotoResumable,
   UserProfile,
 } from "@/app/lib/firestore";
+import ModernSelect from "@/components/ModernSelect";
 
 export default function ProfilePage() {
   const { user, updateUserProfile, refreshUser } = useAuth();
-  const { tr } = useLanguage();
+  const { tr, locale } = useLanguage();
 
   const [displayName, setDisplayName] = useState("");
   const [phone, setPhone] = useState("");
@@ -32,6 +34,8 @@ export default function ProfilePage() {
   const [bio, setBio] = useState("");
   const [photoURL, setPhotoURL] = useState<string | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [availableDepartments, setAvailableDepartments] = useState<any[]>([]);
+  const [loadingDepartments, setLoadingDepartments] = useState(true);
 
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -58,6 +62,26 @@ export default function ProfilePage() {
       }
     });
   }, [user]);
+
+  useEffect(() => {
+    const loadDepartments = async () => {
+      setLoadingDepartments(true);
+      try {
+        const data = await getSettingsDepartments();
+        const list = data || [];
+        setAvailableDepartments(list);
+        if (list.length > 0 && !list.some((d) => d.name === department)) {
+          setDepartment(list[0].name);
+        }
+      } catch (err) {
+        console.error("Failed to load departments:", err);
+      } finally {
+        setLoadingDepartments(false);
+      }
+    };
+
+    void loadDepartments();
+  }, [department]);
 
   // Resize image to max 800px and compress to JPEG < ~200KB
   const compressImage = (file: File): Promise<File> =>
@@ -213,9 +237,14 @@ export default function ProfilePage() {
     <div className="space-y-8 max-w-3xl">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">{tr("profile.title", "Profile")}</h1>
+        <h1 className="text-2xl font-bold text-white">
+          {tr("profile.title", "Profile")}
+        </h1>
         <p className="text-gray-400 text-sm mt-1">
-          {tr("profile.description", "Manage your personal information and account settings")}
+          {tr(
+            "profile.description",
+            "Manage your personal information and account settings",
+          )}
         </p>
       </div>
 
@@ -360,21 +389,15 @@ export default function ProfilePage() {
             <label className="block text-sm font-medium text-gray-300 mb-1.5">
               {tr("profile.department", "Department")}
             </label>
-            <div className="relative">
-              <Building2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-              <select
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-xl border border-white/15 bg-[#0a0f1e] text-white text-sm focus:outline-none focus:ring-2 focus:ring-sky-500/30 focus:border-sky-500/50 transition appearance-none"
-              >
-                <option>Legal</option>
-                <option>HR</option>
-                <option>Finance</option>
-                <option>Operations</option>
-                <option>IT</option>
-                <option>Administration</option>
-              </select>
-            </div>
+            <ModernSelect
+              options={availableDepartments}
+              value={department}
+              onChange={setDepartment}
+              placeholder={tr("profile.department", "Department")}
+              icon={<Building2 className="w-4 h-4" />}
+              locale={locale}
+              loading={loadingDepartments}
+            />
           </div>
 
           {/* Role */}
@@ -423,7 +446,9 @@ export default function ProfilePage() {
             ) : (
               <Save className="w-4 h-4" />
             )}
-            {saving ? tr("profile.saving", "Saving...") : tr("profile.saveProfile", "Save Profile")}
+            {saving
+              ? tr("profile.saving", "Saving...")
+              : tr("profile.saveProfile", "Save Profile")}
           </button>
         </div>
       </div>

@@ -18,6 +18,11 @@ import {
 import type { TranslationKey } from "@/app/lib/translations";
 import { useLanguage } from "@/app/lib/language-context";
 import { useToast } from "@/components/ToastProvider";
+import {
+  fetchWithCache,
+  invalidateCachePrefix,
+  getCacheSnapshot,
+} from "@/app/lib/client-cache";
 
 type SettingsLocation = {
   id: string;
@@ -97,55 +102,63 @@ export default function SettingsPage() {
     try {
       const [locationsRes, departmentsRes, usersRes, systemRes] =
         await Promise.all([
-          fetch("/api/settings/locations", { cache: "no-store" }),
-          fetch("/api/settings/departments", { cache: "no-store" }),
-          fetch("/api/settings/users", { cache: "no-store" }),
-          fetch("/api/settings/system", { cache: "no-store" }),
+          fetchWithCache(
+            "settings-page/locations",
+            () => fetch("/api/settings/locations").then((r) => r.json()),
+            { ttlMs: 60_000 },
+          ),
+          fetchWithCache(
+            "settings-page/departments",
+            () => fetch("/api/settings/departments").then((r) => r.json()),
+            { ttlMs: 60_000 },
+          ),
+          fetchWithCache(
+            "settings-page/users",
+            () => fetch("/api/settings/users").then((r) => r.json()),
+            { ttlMs: 60_000 },
+          ),
+          fetchWithCache(
+            "settings-page/system",
+            () => fetch("/api/settings/system").then((r) => r.json()),
+            { ttlMs: 60_000 },
+          ),
         ]);
 
-      const [locationsJson, departmentsJson, usersJson, systemJson] =
-        await Promise.all([
-          locationsRes.json(),
-          departmentsRes.json(),
-          usersRes.json(),
-          systemRes.json(),
-        ]);
-
-      if (!locationsRes.ok || !locationsJson.success) {
-        throw new Error(locationsJson.error || "Failed to load locations");
+      if (!locationsRes.success) {
+        throw new Error(locationsRes.error || "Failed to load locations");
       }
-      if (!departmentsRes.ok || !departmentsJson.success) {
-        throw new Error(departmentsJson.error || "Failed to load departments");
+      if (!departmentsRes.success) {
+        throw new Error(departmentsRes.error || "Failed to load departments");
       }
-      if (!usersRes.ok || !usersJson.success) {
-        throw new Error(usersJson.error || "Failed to load users");
+      if (!usersRes.success) {
+        throw new Error(usersRes.error || "Failed to load users");
       }
-      if (!systemRes.ok || !systemJson.success) {
-        throw new Error(systemJson.error || "Failed to load system settings");
+      if (!systemRes.success) {
+        throw new Error(systemRes.error || "Failed to load system settings");
       }
 
-      setLocations(locationsJson.data || []);
-      setDepartments(departmentsJson.data || []);
-      setUsers(usersJson.data || []);
+      setLocations(locationsRes.data || []);
+      setDepartments(departmentsRes.data || []);
+      setUsers(usersRes.data || []);
       setSystemSettings({
         fileExpirationDays: Number(
-          systemJson.data?.fileExpirationDays ??
+          systemRes.data?.fileExpirationDays ??
             EMPTY_SYSTEM_SETTINGS.fileExpirationDays,
         ),
         notifyOnFileExpiration: Boolean(
-          systemJson.data?.notifyOnFileExpiration ??
+          systemRes.data?.notifyOnFileExpiration ??
           EMPTY_SYSTEM_SETTINGS.notifyOnFileExpiration,
         ),
         notifyOnFileCheckout: Boolean(
-          systemJson.data?.notifyOnFileCheckout ??
+          systemRes.data?.notifyOnFileCheckout ??
           EMPTY_SYSTEM_SETTINGS.notifyOnFileCheckout,
         ),
         dailySummaryEmail: Boolean(
-          systemJson.data?.dailySummaryEmail ??
+          systemRes.data?.dailySummaryEmail ??
           EMPTY_SYSTEM_SETTINGS.dailySummaryEmail,
         ),
         maxUploadSizeMb: Number(
-          systemJson.data?.maxUploadSizeMb ??
+          systemRes.data?.maxUploadSizeMb ??
             EMPTY_SYSTEM_SETTINGS.maxUploadSizeMb,
         ),
       });
@@ -187,6 +200,7 @@ export default function SettingsPage() {
       if (!response.ok || !json.success) {
         throw new Error(json.error || "Failed to add location");
       }
+      invalidateCachePrefix("settings-page/locations");
       await loadData();
       showToast("Location added", "success");
     } catch (error) {
@@ -220,17 +234,17 @@ export default function SettingsPage() {
         const json = await response.json();
         if (!response.ok || !json.success) {
           throw new Error(json.error || "Failed to update location");
-        }
-        await loadData();
-        showToast("Location updated", "success");
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Failed to update location";
-        showToast(message, "error");
-      } finally {
-        setBusyKey(null);
-      }
-    },
+        }      invalidateCachePrefix("settings-page/locations");
+      await loadData();
+      showToast("Location updated", "success");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to update location";
+      showToast(message, "error");
+    } finally {
+      setBusyKey(null);
+    }
+  },
     [loadData, showToast],
   );
 
@@ -251,6 +265,7 @@ export default function SettingsPage() {
         if (!response.ok || !json.success) {
           throw new Error(json.error || "Failed to delete location");
         }
+        invalidateCachePrefix("settings-page/locations");
         setLocations((prev) => prev.filter((item) => item.id !== location.id));
         showToast("Location deleted", "success");
       } catch (error) {
@@ -281,6 +296,7 @@ export default function SettingsPage() {
       if (!response.ok || !json.success) {
         throw new Error(json.error || "Failed to add department");
       }
+      invalidateCachePrefix("settings-page/departments");
       await loadData();
       showToast("Department added", "success");
     } catch (error) {
@@ -312,19 +328,19 @@ export default function SettingsPage() {
         const json = await response.json();
         if (!response.ok || !json.success) {
           throw new Error(json.error || "Failed to update department");
-        }
-        await loadData();
-        showToast("Department updated", "success");
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to update department";
-        showToast(message, "error");
-      } finally {
-        setBusyKey(null);
-      }
-    },
+        }      invalidateCachePrefix("settings-page/departments");
+      await loadData();
+      showToast("Department updated", "success");
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to update department";
+      showToast(message, "error");
+    } finally {
+      setBusyKey(null);
+    }
+  },
     [loadData, showToast],
   );
 
@@ -348,6 +364,7 @@ export default function SettingsPage() {
         if (!response.ok || !json.success) {
           throw new Error(json.error || "Failed to delete department");
         }
+        invalidateCachePrefix("settings-page/departments");
         setDepartments((prev) =>
           prev.filter((item) => item.id !== department.id),
         );
@@ -378,6 +395,7 @@ export default function SettingsPage() {
       if (!response.ok || !json.success) {
         throw new Error(json.error || "Failed to save system settings");
       }
+      invalidateCachePrefix("settings-page/system");
       showToast("System settings saved", "success");
     } catch (error) {
       const message =

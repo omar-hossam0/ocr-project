@@ -9,7 +9,7 @@ function isLocalhostUrl(url: string) {
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(url);
 }
 
-async function proxyUserRequest(request: NextRequest, id: string) {
+async function proxyMeRequest(request: NextRequest) {
   if (!BACKEND_URL) {
     return NextResponse.json(
       {
@@ -31,7 +31,7 @@ async function proxyUserRequest(request: NextRequest, id: string) {
     );
   }
 
-  const targetUrl = new URL(`${BACKEND_URL}/api/settings/users/${id}`);
+  const targetUrl = new URL(`${BACKEND_URL}/api/settings/users/me`);
   targetUrl.search = request.nextUrl.search;
 
   const headers = new Headers(request.headers);
@@ -60,31 +60,10 @@ async function proxyUserRequest(request: NextRequest, id: string) {
   });
 }
 
-export async function GET(
-  request: NextRequest,
-  context: { params: Promise<{ id: string }> },
-) {
-  const { id } = await context.params;
-  return proxyUserRequest(request, id);
+export async function GET(request: NextRequest) {
+  return proxyMeRequest(request);
 }
 
-export async function PATCH(
-  request: NextRequest,
-  context: { params: Promise<{ id: string }> },
-) {
-  const { id } = await context.params;
-  return proxyUserRequest(request, id);
-}
-
-export async function DELETE(
-  _request: NextRequest,
-  _context: { params: Promise<{ id: string }> },
-) {
-  return NextResponse.json(
-    {
-      success: false,
-      error: "User deletion is disabled.",
-    },
-    { status: 405 },
-  );
+export async function PATCH(request: NextRequest) {
+  return proxyMeRequest(request);
 }
